@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>StockFlow 進銷存</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">StockFlow</p>
+          <h1>進銷存系統 <span class="version-badge" id="app-version">v0.0.0</span></h1>
+        </div>
+        <div class="header-actions">
+          <button id="export-button" type="button">匯出庫存 CSV</button>
+          <button class="ghost-button" id="reset-button" type="button">重置範例資料</button>
+        </div>
+      </header>
+
+      <section class="metrics" aria-label="Overview metrics">
+        <article class="metric">
+          <span>啟用商品</span>
+          <strong id="metric-products">0</strong>
+        </article>
+        <article class="metric">
+          <span>庫存總值</span>
+          <strong id="metric-stock-value">$0</strong>
+        </article>
+        <article class="metric">
+          <span>銷售收入</span>
+          <strong id="metric-revenue">$0</strong>
+        </article>
+        <article class="metric danger-metric">
+          <span>低庫存</span>
+          <strong id="metric-low-stock">0</strong>
+        </article>
+      </section>
+
+      <nav class="tabs" aria-label="Inventory sections">
+        <button class="tab is-active" type="button" data-tab="overview">總覽</button>
+        <button class="tab" type="button" data-tab="products">商品管理</button>
+        <button class="tab" type="button" data-tab="partners">往來對象</button>
+        <button class="tab" type="button" data-tab="purchases">採購進貨</button>
+        <button class="tab" type="button" data-tab="sales">銷售出貨</button>
+        <button class="tab" type="button" data-tab="reports">報表中心</button>
+      </nav>
+
+      <p class="status" id="status-line" role="status"></p>
+
+      <section class="view is-active" data-view="overview">
+        <div class="two-column">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>低庫存商品</h2>
+              <span id="overview-low-count">0 項</span>
+            </div>
+            <div id="low-stock-list" class="compact-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>最近紀錄</h2>
+              <span>進貨 / 銷售</span>
+            </div>
+            <div id="recent-activity" class="compact-list"></div>
+          </section>
+        </div>
+        <section class="panel single-panel">
+          <div class="panel-head">
+            <h2>毛利排行</h2>
+            <span>依商品粗略毛利排序</span>
+          </div>
+          <div id="profit-ranking" class="ranking-list"></div>
+        </section>
+      </section>
+
+      <section class="view" data-view="products">
+        <div class="two-column">
+          <form class="panel form-panel" id="product-form">
+            <div class="panel-head form-title">
+              <h2 id="product-form-title">新增商品</h2>
+              <button class="ghost-button is-hidden" id="cancel-product-edit" type="button">取消編輯</button>
+            </div>
+            <input name="id" type="hidden">
+            <label>
+              <span>SKU</span>
+              <input name="sku" type="text" maxlength="24" required>
+            </label>
+            <label>
+              <span>商品名稱</span>
+              <input name="name" type="text" maxlength="60" required>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>分類</span>
+                <input name="category" type="text" maxlength="30" value="一般">
+              </label>
+              <label>
+                <span>單位</span>
+                <input name="unit" type="text" maxlength="12" value="件">
+              </label>
+            </div>
+            <div class="form-grid">
+              <label>
+                <span>成本</span>
+                <input name="cost" type="number" min="0" step="1" required>
+              </label>
+              <label>
+                <span>售價</span>
+                <input name="price" type="number" min="0" step="1" required>
+              </label>
+            </div>
+            <label>
+              <span>安全庫存</span>
+              <input name="safetyStock" type="number" min="0" step="1" value="5" required>
+            </label>
+            <button id="product-submit-button" type="submit">新增商品</button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>商品清單</h2>
+              <div class="filters">
+                <input id="product-query" type="search" placeholder="搜尋 SKU / 名稱">
+                <select id="product-category-filter"></select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>商品</th>
+                    <th>分類</th>
+                    <th>成本</th>
+                    <th>售價</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="product-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" data-view="partners">
+        <div class="two-column">
+          <form class="panel form-panel" id="partner-form">
+            <div class="panel-head form-title">
+              <h2 id="partner-form-title">新增往來對象</h2>
+              <button class="ghost-button is-hidden" id="cancel-partner-edit" type="button">取消編輯</button>
+            </div>
+            <input name="id" type="hidden">
+            <label>
+              <span>類型</span>
+              <select name="role" required>
+                <option value="supplier">供應商</option>
+                <option value="customer">客戶</option>
+              </select>
+            </label>
+            <label>
+              <span>名稱</span>
+              <input name="name" type="text" maxlength="60" required>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>聯絡人</span>
+                <input name="contact" type="text" maxlength="40">
+              </label>
+              <label>
+                <span>電話</span>
+                <input name="phone" type="text" maxlength="30">
+              </label>
+            </div>
+            <label>
+              <span>備註</span>
+              <input name="note" type="text" maxlength="80">
+            </label>
+            <button id="partner-submit-button" type="submit">新增對象</button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>往來對象清單</h2>
+              <div class="filters">
+                <input id="partner-query" type="search" placeholder="搜尋名稱 / 聯絡人">
+                <select id="partner-role-filter">
+                  <option value="">全部類型</option>
+                  <option value="supplier">供應商</option>
+                  <option value="customer">客戶</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>類型</th>
+                    <th>名稱</th>
+                    <th>聯絡人</th>
+                    <th>電話</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="partner-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" data-view="purchases">
+        <div class="two-column">
+          <form class="panel form-panel" id="purchase-form">
+            <h2>新增進貨</h2>
+            <label>
+              <span>商品</span>
+              <select name="productId" data-product-select required></select>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>數量</span>
+                <input name="quantity" type="number" min="1" step="1" required>
+              </label>
+              <label>
+                <span>進貨單價</span>
+                <input name="unitCost" type="number" min="0" step="1" required>
+              </label>
+            </div>
+            <label>
+              <span>供應商</span>
+              <input name="supplier" type="text" maxlength="50" list="supplier-options">
+            </label>
+            <label>
+              <span>日期</span>
+              <input name="date" type="date" required>
+            </label>
+            <label>
+              <span>備註</span>
+              <input name="note" type="text" maxlength="80">
+            </label>
+            <button type="submit">新增進貨</button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>進貨紀錄</h2>
+              <div class="filters">
+                <input id="purchase-query" type="search" placeholder="搜尋商品 / 供應商">
+                <input id="purchase-month" type="month">
+                <span id="purchase-count">0 筆</span>
+              </div>
+            </div>
+            <div id="purchase-list" class="record-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" data-view="sales">
+        <div class="two-column">
+          <form class="panel form-panel" id="sale-form">
+            <h2>新增銷售</h2>
+            <label>
+              <span>商品</span>
+              <select name="productId" data-product-select required></select>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>數量</span>
+                <input name="quantity" type="number" min="1" step="1" required>
+              </label>
+              <label>
+                <span>銷售單價</span>
+                <input name="unitPrice" type="number" min="0" step="1" required>
+              </label>
+            </div>
+            <label>
+              <span>客戶</span>
+              <input name="customer" type="text" maxlength="50" list="customer-options">
+            </label>
+            <label>
+              <span>日期</span>
+              <input name="date" type="date" required>
+            </label>
+            <label>
+              <span>備註</span>
+              <input name="note" type="text" maxlength="80">
+            </label>
+            <button type="submit">新增銷售</button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>銷售紀錄</h2>
+              <div class="filters">
+                <input id="sale-query" type="search" placeholder="搜尋商品 / 客戶">
+                <input id="sale-month" type="month">
+                <span id="sale-count">0 筆</span>
+              </div>
+            </div>
+            <div id="sale-list" class="record-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" data-view="reports">
+        <section class="report-hero panel">
+          <div>
+            <h2>報表中心</h2>
+            <p>集中查看庫存、銷售、進貨與毛利報表，後續新增報表都會放在這裡。</p>
+          </div>
+          <label class="report-month">
+            <span>報表月份</span>
+            <input id="report-month" type="month">
+          </label>
+        </section>
+
+        <section class="report-grid" aria-label="Report summary">
+          <article class="report-card">
+            <span>本期銷售額</span>
+            <strong id="report-sales-revenue">$0</strong>
+            <small id="report-sales-count">0 筆 / 0 件</small>
+          </article>
+          <article class="report-card">
+            <span>本期進貨額</span>
+            <strong id="report-purchase-cost">$0</strong>
+            <small id="report-purchase-count">0 筆 / 0 件</small>
+          </article>
+          <article class="report-card">
+            <span>本期毛利</span>
+            <strong id="report-gross-profit">$0</strong>
+            <small id="report-margin-rate">毛利率 0%</small>
+          </article>
+          <article class="report-card">
+            <span>報表庫存狀態</span>
+            <strong id="report-low-stock">0</strong>
+            <small>低庫存商品</small>
+          </article>
+        </section>
+
+        <div class="two-column report-sections">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>銷售摘要</h2>
+              <span id="report-sales-label">本期</span>
+            </div>
+            <div id="report-sales-list" class="record-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>進貨摘要</h2>
+              <span id="report-purchases-label">本期</span>
+            </div>
+            <div id="report-purchase-list" class="record-list"></div>
+          </section>
+        </div>
+
+        <section class="panel single-panel">
+          <div class="panel-head">
+            <h2>毛利排行報表</h2>
+            <span>依商品粗略毛利排序</span>
+          </div>
+          <div id="report-profit-ranking" class="ranking-list"></div>
+        </section>
+
+        <section class="panel single-panel">
+          <div class="panel-head">
+            <h2>庫存異動明細</h2>
+            <div class="filters">
+              <input id="movement-query" type="search" placeholder="搜尋商品 / 對象 / 備註">
+              <span id="movement-count">0 筆</span>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>類型</th>
+                  <th>商品</th>
+                  <th>異動數量</th>
+                  <th>金額</th>
+                  <th>對象</th>
+                  <th>備註</th>
+                </tr>
+              </thead>
+              <tbody id="movement-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head stock-head">
+            <h2>庫存報表</h2>
+            <div class="filters">
+              <input id="stock-query" type="search" placeholder="搜尋 SKU / 名稱">
+              <select id="category-filter"></select>
+              <select id="stock-sort">
+                <option value="sku">依 SKU</option>
+                <option value="lowStockFirst">低庫存優先</option>
+                <option value="onHandAsc">庫存由少到多</option>
+                <option value="stockValueDesc">庫存價值高到低</option>
+                <option value="grossProfitDesc">毛利高到低</option>
+              </select>
+              <label class="checkbox-filter">
+                <input id="low-stock-only" type="checkbox">
+                <span>只看低庫存</span>
+              </label>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>商品</th>
+                  <th>分類</th>
+                  <th>庫存</th>
+                  <th>安全庫存</th>
+                  <th>庫存總值</th>
+                  <th>收入</th>
+                  <th>毛利</th>
+                  <th>狀態</th>
+                </tr>
+              </thead>
+              <tbody id="stock-table"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <datalist id="supplier-options"></datalist>
+    <datalist id="customer-options"></datalist>
+
+    <script src="./inventoryStore.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
