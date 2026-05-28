@@ -139,6 +139,50 @@
       return copyPurchase(purchase);
     }
 
+    function addPurchaseOrder(input) {
+      const date = normalizeDate(input && input.date);
+      const items = normalizeOrderItems(input && input.items, "unitCost");
+
+      if (!date || !items.length) {
+        return null;
+      }
+
+      if (items.some((item) => {
+        const product = findProduct(item.productId);
+        return !product || !product.active;
+      })) {
+        return null;
+      }
+
+      const documentNo = normalizeText(input && input.documentNo) || nextDocumentNo("PO", date, purchases);
+      const created = items.map((item) => {
+        const purchase = {
+          id: nextPurchaseId,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          supplier: normalizeText(input && input.supplier),
+          date,
+          note: normalizeText(input && input.note),
+          documentNo
+        };
+        nextPurchaseId += 1;
+        return purchase;
+      });
+
+      purchases = created.concat(purchases);
+      products = products.map((product) => {
+        const latestLine = created.find((item) => item.productId === product.id);
+        return latestLine ? Object.assign({}, product, { cost: latestLine.unitCost }) : product;
+      });
+
+      return {
+        documentNo,
+        lines: created.map(copyPurchase),
+        total: created.reduce((sum, item) => sum + item.quantity * item.unitCost, 0)
+      };
+    }
+
     function addSale(input) {
       const sale = normalizeSale(input, nextSaleId);
       const product = findProduct(sale && sale.productId);
@@ -154,6 +198,57 @@
       nextSaleId += 1;
       sales = [sale].concat(sales);
       return copySale(sale);
+    }
+
+    function addSaleOrder(input) {
+      const date = normalizeDate(input && input.date);
+      const items = normalizeOrderItems(input && input.items, "unitPrice");
+
+      if (!date || !items.length) {
+        return null;
+      }
+
+      if (items.some((item) => {
+        const product = findProduct(item.productId);
+        return !product || !product.active;
+      })) {
+        return null;
+      }
+
+      const requestedByProduct = new Map();
+      items.forEach((item) => {
+        requestedByProduct.set(item.productId, (requestedByProduct.get(item.productId) || 0) + item.quantity);
+      });
+
+      for (const [productId, quantity] of requestedByProduct.entries()) {
+        if (stockForProduct(productId).onHand < quantity) {
+          return { error: "INSUFFICIENT_STOCK" };
+        }
+      }
+
+      const documentNo = normalizeText(input && input.documentNo) || nextDocumentNo("SO", date, sales);
+      const created = items.map((item) => {
+        const sale = {
+          id: nextSaleId,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          customer: normalizeText(input && input.customer),
+          date,
+          note: normalizeText(input && input.note),
+          documentNo
+        };
+        nextSaleId += 1;
+        return sale;
+      });
+
+      sales = created.concat(sales);
+
+      return {
+        documentNo,
+        lines: created.map(copySale),
+        total: created.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
+      };
     }
 
     function removePurchase(id) {
@@ -213,6 +308,7 @@
           return [
             product && product.sku,
             product && product.name,
+            purchase.documentNo,
             purchase.supplier,
             purchase.note
           ].some((value) => normalizeText(value).toLowerCase().includes(query));
@@ -237,6 +333,7 @@
           return [
             product && product.sku,
             product && product.name,
+            sale.documentNo,
             sale.customer,
             sale.note
           ].some((value) => normalizeText(value).toLowerCase().includes(query));
@@ -349,6 +446,8 @@
           amount: purchase.quantity * purchase.unitCost,
           party: purchase.supplier,
           note: purchase.note
+          ,
+          documentNo: purchase.documentNo
         };
       });
       const saleMovements = sales.map((sale) => {
@@ -366,6 +465,8 @@
           amount: sale.quantity * sale.unitPrice,
           party: sale.customer,
           note: sale.note
+          ,
+          documentNo: sale.documentNo
         };
       });
 
@@ -377,7 +478,7 @@
             return true;
           }
 
-          return [item.sku, item.productName, item.party, item.note, item.label]
+          return [item.sku, item.productName, item.documentNo, item.party, item.note, item.label]
             .some((value) => normalizeText(value).toLowerCase().includes(query));
         })
         .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
@@ -466,6 +567,8 @@
       listProducts,
       listPurchases,
       listSales,
+      addPurchaseOrder,
+      addSaleOrder,
       reportSummary,
       removePurchase,
       removeSale,
@@ -576,7 +679,8 @@
       unitCost,
       supplier: normalizeText(input && input.supplier),
       date,
-      note: normalizeText(input && input.note)
+      note: normalizeText(input && input.note),
+      documentNo: normalizeText(input && input.documentNo)
     };
   }
 
@@ -597,7 +701,8 @@
       unitPrice,
       customer: normalizeText(input && input.customer),
       date,
-      note: normalizeText(input && input.note)
+      note: normalizeText(input && input.note),
+      documentNo: normalizeText(input && input.documentNo)
     };
   }
 
@@ -623,7 +728,8 @@
       unitCost: nonNegativeNumber(purchase.unitCost) || 0,
       supplier: normalizeText(purchase.supplier),
       date: normalizeDate(purchase.date),
-      note: normalizeText(purchase.note)
+      note: normalizeText(purchase.note),
+      documentNo: normalizeText(purchase.documentNo)
     };
   }
 
@@ -635,7 +741,8 @@
       unitPrice: nonNegativeNumber(sale.unitPrice) || 0,
       customer: normalizeText(sale.customer),
       date: normalizeDate(sale.date),
-      note: normalizeText(sale.note)
+      note: normalizeText(sale.note),
+      documentNo: normalizeText(sale.documentNo)
     };
   }
 
@@ -664,6 +771,44 @@
   function normalizeDate(value) {
     const date = normalizeText(value);
     return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+  }
+
+  function normalizeOrderItems(items, priceField) {
+    if (!Array.isArray(items)) {
+      return [];
+    }
+
+    return items.map((item) => {
+      const productId = Number(item && item.productId);
+      const quantity = positiveNumber(item && item.quantity);
+      const price = nonNegativeNumber(item && item[priceField]);
+
+      if (!productId || quantity === null || price === null) {
+        return null;
+      }
+
+      return {
+        productId,
+        quantity,
+        [priceField]: price
+      };
+    }).filter(Boolean);
+  }
+
+  function nextDocumentNo(prefix, date, rows) {
+    const yyyymm = date.slice(0, 7).replace("-", "");
+    const base = `${prefix}-${yyyymm}-`;
+    const max = rows.reduce((current, row) => {
+      const value = normalizeText(row.documentNo);
+      if (!value.startsWith(base)) {
+        return current;
+      }
+
+      const number = Number(value.slice(base.length));
+      return Number.isFinite(number) ? Math.max(current, number) : current;
+    }, 0);
+
+    return `${base}${String(max + 1).padStart(3, "0")}`;
   }
 
   global.createInventoryStore = createInventoryStore;

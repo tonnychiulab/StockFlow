@@ -1,5 +1,5 @@
 const storageKey = "stockflow-inventory-state";
-const appVersion = "1.7.0";
+const appVersion = "1.8.0";
 const today = new Date().toISOString().slice(0, 10);
 
 const seedState = {
@@ -136,26 +136,38 @@ function bindEvents() {
 
   purchaseForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    const purchase = store.addPurchase(Object.fromEntries(new FormData(purchaseForm)));
+    const data = Object.fromEntries(new FormData(purchaseForm));
+    const purchase = store.addPurchaseOrder({
+      supplier: data.supplier,
+      date: data.date,
+      note: data.note,
+      items: collectOrderItems(data, "unitCost")
+    });
 
     if (!purchase) {
-      setStatus("進貨新增失敗，請確認商品仍啟用且欄位有效。", true);
+      setStatus("採購單建立失敗，請確認商品仍啟用且明細有效。", true);
       return;
     }
 
     purchaseForm.reset();
     setDefaultDates();
     saveState();
-    setStatus("已新增進貨，庫存已更新。");
+    setStatus(`已建立採購單 ${purchase.documentNo}，共 ${purchase.lines.length} 筆明細。`);
     render();
   });
 
   saleForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    const sale = store.addSale(Object.fromEntries(new FormData(saleForm)));
+    const data = Object.fromEntries(new FormData(saleForm));
+    const sale = store.addSaleOrder({
+      customer: data.customer,
+      date: data.date,
+      note: data.note,
+      items: collectOrderItems(data, "unitPrice")
+    });
 
     if (!sale) {
-      setStatus("銷售新增失敗，請確認商品仍啟用且欄位有效。", true);
+      setStatus("銷售單建立失敗，請確認商品仍啟用且明細有效。", true);
       return;
     }
 
@@ -167,7 +179,7 @@ function bindEvents() {
     saleForm.reset();
     setDefaultDates();
     saveState();
-    setStatus("已新增銷售，庫存已扣減。");
+    setStatus(`已建立銷售單 ${sale.documentNo}，共 ${sale.lines.length} 筆明細。`);
     render();
   });
 
@@ -495,7 +507,7 @@ function renderPurchases() {
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${item.date} / ${escapeHtml(item.supplier || "未填供應商")} / ${escapeHtml(item.note || "無備註")}</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.supplier || "未填供應商")} / ${escapeHtml(item.note || "無備註")}</div>
         </div>
         <div class="record-side">
           <span class="amount income">+${item.quantity} / ${formatMoney(item.quantity * item.unitCost)}</span>
@@ -517,7 +529,7 @@ function renderSales() {
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${item.date} / ${escapeHtml(item.customer || "未填客戶")} / ${escapeHtml(item.note || "無備註")}</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.customer || "未填客戶")} / ${escapeHtml(item.note || "無備註")}</div>
         </div>
         <div class="record-side">
           <span class="amount expense">-${item.quantity} / ${formatMoney(item.quantity * item.unitPrice)}</span>
@@ -554,7 +566,7 @@ function renderReports() {
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${item.date} / ${escapeHtml(item.customer || "未填客戶")} / ${item.quantity} 件</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.customer || "未填客戶")} / ${item.quantity} 件</div>
         </div>
         <span class="amount expense">${formatMoney(item.quantity * item.unitPrice)}</span>
       </article>
@@ -566,7 +578,7 @@ function renderReports() {
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${item.date} / ${escapeHtml(item.supplier || "未填供應商")} / ${item.quantity} 件</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.supplier || "未填供應商")} / ${item.quantity} 件</div>
         </div>
         <span class="amount income">${formatMoney(item.quantity * item.unitCost)}</span>
       </article>
@@ -593,8 +605,8 @@ function renderReports() {
         <td>${item.type === "purchase" ? '<span class="badge">進貨</span>' : '<span class="badge warn">銷售</span>'}</td>
         <td>
           <div class="row-title">
-            <strong>${escapeHtml(item.productName)}</strong>
-            <span>${escapeHtml(item.sku)}</span>
+            <strong>${escapeHtml(item.documentNo || "無單號")}</strong>
+            <span>${escapeHtml(item.sku)} / ${escapeHtml(item.productName)}</span>
           </div>
         </td>
         <td class="${item.quantity >= 0 ? "movement-positive" : "movement-negative"}">${item.quantity >= 0 ? "+" : ""}${item.quantity}</td>
@@ -664,7 +676,8 @@ function renderProductOptions() {
 
   document.querySelectorAll("[data-product-select]").forEach((select) => {
     const selected = select.value;
-    select.innerHTML = options || '<option value="">尚無啟用商品</option>';
+    const blank = select.required ? "" : '<option value="">不新增第二筆</option>';
+    select.innerHTML = options ? blank + options : '<option value="">尚無啟用商品</option>';
     if (selected && Array.from(select.options).some((option) => option.value === selected)) {
       select.value = selected;
     }
@@ -681,6 +694,25 @@ function renderPartnerOptions() {
 
   document.querySelector("#supplier-options").innerHTML = supplierOptions;
   document.querySelector("#customer-options").innerHTML = customerOptions;
+}
+
+function collectOrderItems(data, priceField) {
+  const secondPriceField = `${priceField}2`;
+  const items = [{
+    productId: data.productId,
+    quantity: data.quantity,
+    [priceField]: data[priceField]
+  }];
+
+  if (data.productId2 && data.quantity2 && data[secondPriceField]) {
+    items.push({
+      productId: data.productId2,
+      quantity: data.quantity2,
+      [priceField]: data[secondPriceField]
+    });
+  }
+
+  return items;
 }
 
 function productName(productId) {

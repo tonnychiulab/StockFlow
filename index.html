@@ -216,9 +216,9 @@
       <section class="view" data-view="purchases">
         <div class="two-column">
           <form class="panel form-panel" id="purchase-form">
-            <h2>新增進貨</h2>
+            <h2>新增採購單</h2>
             <label>
-              <span>商品</span>
+              <span>明細 1 商品</span>
               <select name="productId" data-product-select required></select>
             </label>
             <div class="form-grid">
@@ -229,6 +229,20 @@
               <label>
                 <span>進貨單價</span>
                 <input name="unitCost" type="number" min="0" step="1" required>
+              </label>
+            </div>
+            <label>
+              <span>明細 2 商品（可選）</span>
+              <select name="productId2" data-product-select></select>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>明細 2 數量</span>
+                <input name="quantity2" type="number" min="1" step="1">
+              </label>
+              <label>
+                <span>明細 2 單價</span>
+                <input name="unitCost2" type="number" min="0" step="1">
               </label>
             </div>
             <label>
@@ -243,7 +257,7 @@
               <span>備註</span>
               <input name="note" type="text" maxlength="80">
             </label>
-            <button type="submit">新增進貨</button>
+            <button type="submit">建立採購單</button>
           </form>
 
           <section class="panel">
@@ -263,9 +277,9 @@
       <section class="view" data-view="sales">
         <div class="two-column">
           <form class="panel form-panel" id="sale-form">
-            <h2>新增銷售</h2>
+            <h2>新增銷售單</h2>
             <label>
-              <span>商品</span>
+              <span>明細 1 商品</span>
               <select name="productId" data-product-select required></select>
             </label>
             <div class="form-grid">
@@ -276,6 +290,20 @@
               <label>
                 <span>銷售單價</span>
                 <input name="unitPrice" type="number" min="0" step="1" required>
+              </label>
+            </div>
+            <label>
+              <span>明細 2 商品（可選）</span>
+              <select name="productId2" data-product-select></select>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>明細 2 數量</span>
+                <input name="quantity2" type="number" min="1" step="1">
+              </label>
+              <label>
+                <span>明細 2 單價</span>
+                <input name="unitPrice2" type="number" min="0" step="1">
               </label>
             </div>
             <label>
@@ -290,7 +318,7 @@
               <span>備註</span>
               <input name="note" type="text" maxlength="80">
             </label>
-            <button type="submit">新增銷售</button>
+            <button type="submit">建立銷售單</button>
           </form>
 
           <section class="panel">
@@ -381,7 +409,7 @@
                 <tr>
                   <th>日期</th>
                   <th>類型</th>
-                  <th>商品</th>
+                  <th>單號 / 商品</th>
                   <th>異動數量</th>
                   <th>金額</th>
                   <th>對象</th>

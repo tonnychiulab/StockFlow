@@ -66,4 +66,41 @@ assert.equal(store.inventoryReport().find((item) => item.productId === 1).onHand
 assert.equal(store.removeSale(999), false);
 assert.equal(store.removePurchase(999), false);
 
+const orderStore = createInventoryStore({
+  products: [
+    { id: 1, sku: "A001", name: "Coffee Beans", category: "Food", unit: "bag", cost: 250, price: 420, safetyStock: 5, active: true },
+    { id: 2, sku: "B002", name: "Tea Box", category: "Drink", unit: "box", cost: 120, price: 260, safetyStock: 3, active: true }
+  ],
+  purchases: [],
+  sales: []
+});
+const purchaseOrder = orderStore.addPurchaseOrder({
+  supplier: "Vendor Prime",
+  date: "2026-05-14",
+  note: "PO batch",
+  items: [
+    { productId: 1, quantity: 2, unitCost: 270 },
+    { productId: 2, quantity: 3, unitCost: 140 }
+  ]
+});
+assert.equal(purchaseOrder.documentNo, "PO-202605-001");
+assert.equal(purchaseOrder.lines.length, 2);
+assert.equal(purchaseOrder.total, 960);
+assert.equal(orderStore.listPurchases({ query: "PO-202605-001" }).length, 2);
+
+const saleOrder = orderStore.addSaleOrder({
+  customer: "Retail",
+  date: "2026-05-15",
+  note: "SO batch",
+  items: [
+    { productId: 1, quantity: 1, unitPrice: 460 },
+    { productId: 2, quantity: 2, unitPrice: 290 }
+  ]
+});
+assert.equal(saleOrder.documentNo, "SO-202605-001");
+assert.equal(saleOrder.lines.length, 2);
+assert.equal(saleOrder.total, 1040);
+assert.equal(orderStore.listSales({ query: "SO-202605-001" }).length, 2);
+assert.equal(orderStore.addSaleOrder({ customer: "Retail", date: "2026-05-16", items: [{ productId: 2, quantity: 99, unitPrice: 290 }] }).error, "INSUFFICIENT_STOCK");
+
 console.log("inventoryStore tests passed");
