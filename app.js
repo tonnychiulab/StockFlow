@@ -1,7 +1,5 @@
-const storageKey = "stockflow-inventory-state";
-const appVersion = "1.14.0";
-const assetVersion = "1.14.0";
-const dataSchemaVersion = 5;
+const appVersion = "1.14.4";
+const assetVersion = "1.14.4";
 const today = new Date().toISOString().slice(0, 10);
 
 const seedState = {
@@ -39,7 +37,8 @@ const seedState = {
   ]
 };
 
-const initialLoad = loadState();
+const storage = StockFlowStorage.createInventoryStorage({ seedState, appVersion, assetVersion });
+const initialLoad = storage.loadState();
 let store = createInventoryStore(initialLoad.state);
 let activeTab = "overview";
 let editingProductId = null;
@@ -405,7 +404,7 @@ function bindEvents() {
   });
 
   backupExportButton.addEventListener("click", () => {
-    downloadJson(`stockflow-backup-${today}.json`, createStorageEnvelope(store.snapshot()));
+    downloadJson(`stockflow-backup-${today}.json`, storage.createStorageEnvelope(store.snapshot()));
     setStatus("已匯出完整備份 JSON。");
   });
 
@@ -1048,107 +1047,8 @@ function warehouseTypeLabel(type) {
   return "倉庫";
 }
 
-function loadState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
-    if (!saved) {
-      return {
-        state: seedState,
-        notice: ""
-      };
-    }
-
-    const migrated = migrateState(saved);
-    return {
-      state: migrated.state,
-      notice: migrated.notice
-    };
-  } catch (error) {
-    return {
-      state: seedState,
-      notice: "本機資料讀取失敗，已改用範例資料。"
-    };
-  }
-}
-
 function saveState() {
-  localStorage.setItem(storageKey, JSON.stringify(createStorageEnvelope(store.snapshot())));
-}
-
-function migrateState(saved) {
-  const rawState = saved && saved.schemaVersion ? saved.state : saved;
-
-  if (!rawState || !Array.isArray(rawState.products)) {
-    return {
-      state: seedState,
-      notice: "本機資料格式無法辨識，已改用範例資料。"
-    };
-  }
-
-  const migratedWarehouses = Array.isArray(rawState.warehouses) && rawState.warehouses.length
-    ? rawState.warehouses
-    : defaultWarehouses();
-  const migratedWarehouseId = Number(migratedWarehouses[0] && migratedWarehouses[0].id) || 1;
-  const state = {
-    products: Array.isArray(rawState.products) ? rawState.products : [],
-    partners: Array.isArray(rawState.partners) ? rawState.partners : [],
-    productCategories: Array.isArray(rawState.productCategories)
-      ? rawState.productCategories
-      : categoriesFromProducts(rawState.products),
-    warehouses: migratedWarehouses,
-    purchases: withDefaultWarehouse(rawState.purchases, migratedWarehouseId),
-    sales: withDefaultWarehouse(rawState.sales, migratedWarehouseId),
-    adjustments: withDefaultWarehouse(rawState.adjustments, migratedWarehouseId)
-  };
-
-  if (saved.schemaVersion === dataSchemaVersion) {
-    return {
-      state,
-      notice: ""
-    };
-  }
-
-  return {
-    state,
-    notice: `已將本機資料升級到資料版本 ${dataSchemaVersion}。`
-  };
-}
-
-function defaultWarehouses() {
-  return [
-    { id: 1, code: "MAIN", name: "主倉", type: "warehouse", note: "由舊資料升級建立", active: true }
-  ];
-}
-
-function withDefaultWarehouse(rows, warehouseId) {
-  return (Array.isArray(rows) ? rows : []).map((row) => Object.assign({}, row, {
-    warehouseId: Number(row && row.warehouseId) || warehouseId
-  }));
-}
-
-function categoriesFromProducts(products) {
-  return Array.from(new Set((Array.isArray(products) ? products : [])
-    .map((product) => String(product && product.category || "").trim())
-    .filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b))
-    .map((name, index) => ({
-      id: index + 1,
-      code: name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "") || `CAT-${index + 1}`,
-      name,
-      sortOrder: (index + 1) * 10,
-      note: "由既有商品分類升級",
-      active: true
-    }));
-}
-
-function createStorageEnvelope(state) {
-  return {
-    schemaVersion: dataSchemaVersion,
-    appVersion,
-    assetVersion,
-    savedAt: new Date().toISOString(),
-    state
-  };
+  storage.saveState(store.snapshot());
 }
 
 function readBackupFile(file) {
@@ -1157,7 +1057,7 @@ function readBackupFile(file) {
   reader.addEventListener("load", () => {
     try {
       const parsed = JSON.parse(String(reader.result || "null"));
-      const result = validateBackupEnvelope(parsed);
+      const result = storage.validateBackupEnvelope(parsed);
 
       if (!result.valid) {
         backupPreview.innerHTML = `<strong>備份檔無法還原</strong><span>${escapeHtml(result.message)}</span>`;
@@ -1179,62 +1079,6 @@ function readBackupFile(file) {
   });
 
   reader.readAsText(file);
-}
-
-function validateBackupEnvelope(backup) {
-  if (!backup || (!backup.state && !Array.isArray(backup.products))) {
-    return { valid: false, message: "這不是 StockFlow 備份檔。" };
-  }
-
-  const migrated = migrateState(backup);
-  const state = migrated.state;
-  const errors = [];
-  const skuSet = new Set();
-  const productIds = new Set();
-  const warehouseIds = new Set((state.warehouses || []).map((warehouse) => Number(warehouse.id)));
-
-  state.products.forEach((product) => {
-    const sku = String(product.sku || "").trim().toUpperCase();
-    if (!sku || skuSet.has(sku)) {
-      errors.push("商品 SKU 空白或重複。");
-    }
-    skuSet.add(sku);
-    productIds.add(Number(product.id));
-  });
-
-  state.purchases.concat(state.sales).concat(state.adjustments).forEach((row) => {
-    if (!productIds.has(Number(row.productId))) {
-      errors.push("交易或調整資料指向不存在的商品。");
-    }
-    if (!warehouseIds.has(Number(row.warehouseId))) {
-      errors.push("交易或調整資料指向不存在的倉庫。");
-    }
-  });
-
-  if (errors.length) {
-    return { valid: false, message: Array.from(new Set(errors)).join(" ") };
-  }
-
-  return {
-    valid: true,
-    state,
-    summary: summarizeBackup(backup, state)
-  };
-}
-
-function summarizeBackup(backup, state) {
-  return {
-    appVersion: backup && backup.appVersion || "舊版資料",
-    schemaVersion: backup && backup.schemaVersion || "舊版",
-    savedAt: backup && backup.savedAt || "未記錄",
-    productCategories: state.productCategories.length,
-    warehouses: state.warehouses.length,
-    products: state.products.length,
-    partners: state.partners.length,
-    purchases: state.purchases.length,
-    sales: state.sales.length,
-    adjustments: state.adjustments.length
-  };
 }
 
 function renderBackupSummary(summary) {
@@ -1274,7 +1118,7 @@ function formatPercent(value) {
 }
 
 function toCsv(rows) {
-  const header = ["sku", "name", "category", "unit", "onHand", "adjusted", "cost", "price", "safetyStock", "stockValue", "revenue", "grossProfit", "lowStock"];
+  const header = ["sku", "name", "warehouse", "category", "unit", "onHand", "adjusted", "cost", "price", "safetyStock", "stockValue", "revenue", "grossProfit", "lowStock"];
   return [header.join(",")]
     .concat(rows.map((row) => header.map((key) => csvCell(row[key])).join(",")))
     .join("\n");
