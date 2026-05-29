@@ -1,5 +1,5 @@
-const appVersion = "1.15.0";
-const assetVersion = "1.15.0";
+const appVersion = "1.15.2";
+const assetVersion = "1.15.2";
 const today = new Date().toISOString().slice(0, 10);
 
 const seedState = {
@@ -62,6 +62,7 @@ const warehouseForm = document.querySelector("#warehouse-form");
 const purchaseForm = document.querySelector("#purchase-form");
 const saleForm = document.querySelector("#sale-form");
 const adjustmentForm = document.querySelector("#adjustment-form");
+const transferForm = document.querySelector("#transfer-form");
 const productQuery = document.querySelector("#product-query");
 const productCategoryFilter = document.querySelector("#product-category-filter");
 const categoryQuery = document.querySelector("#category-query");
@@ -74,6 +75,8 @@ const saleQuery = document.querySelector("#sale-query");
 const saleMonth = document.querySelector("#sale-month");
 const adjustmentQuery = document.querySelector("#adjustment-query");
 const adjustmentMonth = document.querySelector("#adjustment-month");
+const transferQuery = document.querySelector("#transfer-query");
+const transferMonth = document.querySelector("#transfer-month");
 const reportMonth = document.querySelector("#report-month");
 const movementQuery = document.querySelector("#movement-query");
 const stockQuery = document.querySelector("#stock-query");
@@ -268,6 +271,34 @@ function bindEvents() {
     render();
   });
 
+  transferForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(transferForm));
+    const transfer = store.addTransferOrder({
+      fromWarehouseId: data.fromWarehouseId,
+      toWarehouseId: data.toWarehouseId,
+      date: data.date,
+      note: data.note,
+      items: collectTransferItems(data)
+    });
+
+    if (!transfer) {
+      setStatus(StockFlowMessages.message("transferOrderFailed"), true);
+      return;
+    }
+
+    if (transfer.error === "INSUFFICIENT_STOCK") {
+      setStatus(StockFlowMessages.transactionError(transfer, "transferOrderFailed"), true);
+      return;
+    }
+
+    transferForm.reset();
+    setDefaultDates();
+    saveState();
+    setStatus(`已建立調撥單 ${transfer.documentNo}，共 ${transfer.lines.length} 筆明細。`);
+    render();
+  });
+
   document.querySelector("#product-table").addEventListener("click", (event) => {
     const editButton = event.target.closest("[data-edit-product-id]");
     if (editButton) {
@@ -391,6 +422,8 @@ function bindEvents() {
   saleMonth.addEventListener("change", renderSales);
   adjustmentQuery.addEventListener("input", renderAdjustments);
   adjustmentMonth.addEventListener("change", renderAdjustments);
+  transferQuery.addEventListener("input", renderTransfers);
+  transferMonth.addEventListener("change", renderTransfers);
   reportMonth.addEventListener("change", renderReports);
   movementQuery.addEventListener("input", renderReports);
   stockQuery.addEventListener("input", renderStock);
@@ -461,6 +494,7 @@ function render() {
   renderPurchases();
   renderSales();
   renderAdjustments();
+  renderTransfers();
   renderReports();
   renderStockFilters();
   renderStock();
@@ -763,6 +797,27 @@ function renderAdjustments() {
     : '<div class="empty">尚無盤點調整紀錄。</div>';
 }
 
+function renderTransfers() {
+  const transfers = store.listTransfers({
+    query: transferQuery.value,
+    month: transferMonth.value
+  });
+  document.querySelector("#transfer-count").textContent = `${transfers.length} 筆`;
+  document.querySelector("#transfer-list").innerHTML = transfers.length
+    ? transfers.map((item) => `
+      <article class="record-card">
+        <div>
+          <strong>${escapeHtml(productName(item.productId))}</strong>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(warehouseName(item.fromWarehouseId))} -> ${escapeHtml(warehouseName(item.toWarehouseId))} / ${escapeHtml(item.note || "無備註")}</div>
+        </div>
+        <div class="record-side">
+          <span class="amount">${item.quantity}</span>
+        </div>
+      </article>
+    `).join("")
+    : '<div class="empty">尚無調撥紀錄。</div>';
+}
+
 function renderReports() {
   StockFlowRenderers.renderReports({
     document,
@@ -924,6 +979,22 @@ function collectOrderItems(data, priceField) {
   return items;
 }
 
+function collectTransferItems(data) {
+  const items = [{
+    productId: data.productId,
+    quantity: data.quantity
+  }];
+
+  if (data.productId2 && data.quantity2) {
+    items.push({
+      productId: data.productId2,
+      quantity: data.quantity2
+    });
+  }
+
+  return items;
+}
+
 function productName(productId) {
   const product = store.listProducts().find((item) => item.id === Number(productId));
   return product ? product.name : "未知商品";
@@ -941,6 +1012,10 @@ function movementBadge(type) {
 
   if (type === "adjustment") {
     return '<span class="badge neutral">調整</span>';
+  }
+
+  if (type === "transfer") {
+    return '<span class="badge neutral">調撥</span>';
   }
 
   return '<span class="badge warn">銷售</span>';

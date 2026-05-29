@@ -654,6 +654,10 @@
       return reports.productWarehouseSummary(reportState(), options);
     }
 
+    function warehouseTransferSummary(options) {
+      return reports.warehouseTransferSummary(reportState(), options);
+    }
+
     function reportSummary(options) {
       return reports.reportSummary(reportState(), options);
     }
@@ -779,6 +783,7 @@
       grossProfitRanking,
       warehouseStockSummary,
       productWarehouseSummary,
+      warehouseTransferSummary,
       inventoryReport,
       listPartners,
       listProductCategories,

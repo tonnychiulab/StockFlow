@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>StockFlow 進銷存</title>
-    <link rel="stylesheet" href="./styles.css?v=1.15.0">
+    <link rel="stylesheet" href="./styles.css?v=1.15.2">
   </head>
   <body>
     <main class="app-shell">
@@ -46,6 +46,7 @@
         <button class="tab" type="button" data-tab="purchases">採購進貨</button>
         <button class="tab" type="button" data-tab="sales">銷售出貨</button>
         <button class="tab" type="button" data-tab="adjustments">盤點調整</button>
+        <button class="tab" type="button" data-tab="transfers">倉庫調撥</button>
         <button class="tab" type="button" data-tab="reports">報表中心</button>
       </nav>
 
@@ -519,6 +520,61 @@
         </div>
       </section>
 
+      <section class="view" data-view="transfers">
+        <div class="two-column">
+          <form class="panel form-panel" id="transfer-form">
+            <h2>新增調撥單</h2>
+            <div class="form-grid">
+              <label>
+                <span>來源倉庫</span>
+                <select name="fromWarehouseId" data-warehouse-select required></select>
+              </label>
+              <label>
+                <span>目的倉庫</span>
+                <select name="toWarehouseId" data-warehouse-select required></select>
+              </label>
+            </div>
+            <label>
+              <span>明細 1 商品</span>
+              <select name="productId" data-product-select required></select>
+            </label>
+            <label>
+              <span>明細 1 數量</span>
+              <input name="quantity" type="number" min="1" step="1" required>
+            </label>
+            <label>
+              <span>明細 2 商品（可選）</span>
+              <select name="productId2" data-product-select></select>
+            </label>
+            <label>
+              <span>明細 2 數量</span>
+              <input name="quantity2" type="number" min="1" step="1">
+            </label>
+            <label>
+              <span>日期</span>
+              <input name="date" type="date" required>
+            </label>
+            <label>
+              <span>備註</span>
+              <input name="note" type="text" maxlength="80">
+            </label>
+            <button type="submit">建立調撥單</button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>調撥紀錄</h2>
+              <div class="filters">
+                <input id="transfer-query" type="search" placeholder="搜尋商品 / 倉庫 / 單號">
+                <input id="transfer-month" type="month">
+                <span id="transfer-count">0 筆</span>
+              </div>
+            </div>
+            <div id="transfer-list" class="record-list"></div>
+          </section>
+        </div>
+      </section>
+
       <section class="view" data-view="reports">
         <section class="report-hero panel">
           <div>
@@ -560,6 +616,14 @@
             <span>依倉庫彙總庫存數、低庫存與庫存值</span>
           </div>
           <div id="warehouse-summary-cards" class="ranking-list"></div>
+        </section>
+
+        <section class="panel single-panel">
+          <div class="panel-head">
+            <h2>倉庫調撥流向</h2>
+            <span>依報表月份彙總調入、調出與淨流量</span>
+          </div>
+          <div id="warehouse-transfer-cards" class="ranking-list"></div>
         </section>
 
         <section class="panel single-panel">
@@ -668,13 +732,13 @@
     <datalist id="supplier-options"></datalist>
     <datalist id="customer-options"></datalist>
 
-    <script src="./inventoryUtils.js?v=1.15.0"></script>
-    <script src="./inventoryModels.js?v=1.15.0"></script>
-    <script src="./inventoryReports.js?v=1.15.0"></script>
-    <script src="./inventoryStore.js?v=1.15.0"></script>
-    <script src="./inventoryStorage.js?v=1.15.0"></script>
-    <script src="./inventoryRenderers.js?v=1.15.0"></script>
-    <script src="./inventoryMessages.js?v=1.15.0"></script>
-    <script src="./app.js?v=1.15.0"></script>
+    <script src="./inventoryUtils.js?v=1.15.2"></script>
+    <script src="./inventoryModels.js?v=1.15.2"></script>
+    <script src="./inventoryReports.js?v=1.15.2"></script>
+    <script src="./inventoryStore.js?v=1.15.2"></script>
+    <script src="./inventoryStorage.js?v=1.15.2"></script>
+    <script src="./inventoryRenderers.js?v=1.15.2"></script>
+    <script src="./inventoryMessages.js?v=1.15.2"></script>
+    <script src="./app.js?v=1.15.2"></script>
   </body>
 </html>

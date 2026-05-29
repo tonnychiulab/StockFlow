@@ -103,6 +103,44 @@
       .sort((a, b) => a.product.sku.localeCompare(b.product.sku));
   }
 
+  function warehouseTransferSummary(state, options) {
+    const filter = Object.assign({ month: "" }, options);
+    const summaries = new Map();
+
+    state.warehouses.forEach((warehouse) => {
+      summaries.set(warehouse.id, {
+        warehouse: copyWarehouse(warehouse),
+        warehouseId: warehouse.id,
+        transferredIn: 0,
+        transferredOut: 0,
+        netTransfer: 0,
+        transferCount: 0
+      });
+    });
+
+    filterByMonth(state.transfers || [], filter.month).forEach((transfer) => {
+      const fromSummary = summaries.get(Number(transfer.fromWarehouseId));
+      const toSummary = summaries.get(Number(transfer.toWarehouseId));
+
+      if (fromSummary) {
+        fromSummary.transferredOut += transfer.quantity;
+        fromSummary.netTransfer -= transfer.quantity;
+        fromSummary.transferCount += 1;
+      }
+
+      if (toSummary) {
+        toSummary.transferredIn += transfer.quantity;
+        toSummary.netTransfer += transfer.quantity;
+        toSummary.transferCount += 1;
+      }
+    });
+
+    return Array.from(summaries.values())
+      .filter((summary) => summary.transferCount > 0)
+      .sort((a, b) => Math.abs(b.netTransfer) - Math.abs(a.netTransfer)
+        || normalizeText(a.warehouse && a.warehouse.code).localeCompare(normalizeText(b.warehouse && b.warehouse.code)));
+  }
+
   function reportSummary(state, options) {
     const filter = Object.assign({ month: "" }, options);
     const purchaseRows = filterByMonth(state.purchases, filter.month);
@@ -363,6 +401,7 @@
     grossProfitRanking,
     warehouseStockSummary,
     productWarehouseSummary,
+    warehouseTransferSummary,
     reportSummary,
     stockMovements,
     exportInventoryRows,

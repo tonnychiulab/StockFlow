@@ -8,6 +8,7 @@
     warehouseSaveFailed: "倉庫儲存失敗，請確認代碼和名稱不可重複。",
     purchaseOrderFailed: "採購單建立失敗，請確認商品仍啟用且明細有效。",
     saleOrderFailed: "銷售單建立失敗，請確認商品仍啟用且明細有效。",
+    transferOrderFailed: "調撥單建立失敗，請確認來源與目的倉庫不同、商品仍啟用且明細有效。",
     insufficientStock: "庫存不足，無法建立銷售。",
     adjustmentFailed: "盤點調整建立失敗，請確認商品仍啟用且數量有效。",
     noDifference: "盤點數量與系統庫存相同，無需建立調整單。",

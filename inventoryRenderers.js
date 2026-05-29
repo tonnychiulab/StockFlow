@@ -15,6 +15,7 @@
     const summary = store.reportSummary({ month });
     const lowStock = store.inventoryReport({ lowStockOnly: true });
     const warehouseSummary = store.warehouseStockSummary();
+    const transferSummary = store.warehouseTransferSummary({ month });
     const distribution = store.productWarehouseSummary().slice(0, 8);
     const sales = store.listSales({ month }).slice(0, 6);
     const purchases = store.listPurchases({ month }).slice(0, 6);
@@ -43,6 +44,17 @@
         </article>
       `).join("")
       : '<div class="empty">目前沒有倉庫庫存資料。</div>';
+
+    document.querySelector("#warehouse-transfer-cards").innerHTML = transferSummary.length
+      ? transferSummary.map((item) => `
+        <article class="ranking-card">
+          <strong>${escapeHtml(item.warehouse ? item.warehouse.name : "未指定倉庫")}</strong>
+          <span class="compact-meta">${escapeHtml(item.warehouse ? item.warehouse.code : "-")} / 調撥 ${item.transferCount} 筆</span>
+          <span class="compact-meta">調入 ${item.transferredIn} / 調出 ${item.transferredOut}</span>
+          <span class="compact-meta">淨流量 ${item.netTransfer >= 0 ? "+" : ""}${item.netTransfer}</span>
+        </article>
+      `).join("")
+      : '<div class="empty">這個期間沒有調撥流向資料。</div>';
 
     document.querySelector("#warehouse-distribution-list").innerHTML = distribution.length
       ? distribution.map((item) => `

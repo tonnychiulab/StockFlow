@@ -170,6 +170,10 @@ assert.equal(warehouseStore.addTransferOrder({ fromWarehouseId: 1, toWarehouseId
 assert.equal(warehouseStore.addTransferOrder({ fromWarehouseId: 1, toWarehouseId: 1, date: "2026-05-14", items: [{ productId: 1, quantity: 1 }] }), null);
 assert.equal(warehouseStore.listTransfers({ query: "TRF-202605-001" }).length, 1);
 assert.equal(warehouseStore.stockMovements({ query: "TRF-202605-001" }).length, 2);
+const transferSummary = warehouseStore.warehouseTransferSummary({ month: "2026-05" });
+assert.equal(transferSummary.find((item) => item.warehouse.code === "MAIN").transferredOut, 3);
+assert.equal(transferSummary.find((item) => item.warehouse.code === "STORE").transferredIn, 3);
+assert.equal(transferSummary.find((item) => item.warehouse.code === "STORE").netTransfer, 3);
 assert.equal(warehouseStore.listSales({ query: "store" }).length, 1);
 assert.equal(warehouseStore.stockMovements({ query: "STORE" }).some((item) => item.warehouseName === "Storefront"), true);
 assert.equal(warehouseStore.exportInventoryRows().some((row) => row.warehouse.includes("STORE")), true);
