@@ -12,6 +12,20 @@ const store = createInventoryStore({
 assert.equal(store.addProduct({ sku: "A001", name: "Duplicate", category: "Food", unit: "bag", cost: 1, price: 2, safetyStock: 0 }), null);
 assert.equal(store.addProduct({ sku: "B002", name: "Tea", category: "Drink", unit: "box", cost: 120, price: 260, safetyStock: 3 }).sku, "B002");
 assert.equal(store.addProduct({ sku: "", name: "Bad", category: "Other", unit: "pc", cost: 1, price: 2, safetyStock: 0 }), null);
+assert.equal(store.addProductCategory({ code: "FOOD", name: "Food", sortOrder: 10, note: "Main" }).name, "Food");
+assert.equal(store.addProductCategory({ code: "FOOD", name: "Food Again", sortOrder: 20 }), null);
+assert.equal(store.addProductCategory({ code: "DRINK", name: "Drink", sortOrder: 20 }).code, "DRINK");
+assert.equal(store.listProductCategories({ activeOnly: true }).length, 2);
+assert.equal(store.categories().includes("Drink"), true);
+assert.equal(store.deactivateProductCategory(2).active, false);
+assert.equal(store.listProductCategories({ activeOnly: true }).length, 1);
+assert.equal(store.addWarehouse({ code: "BACK", name: "Back Warehouse", type: "warehouse", note: "Default" }).name, "Back Warehouse");
+assert.equal(store.addWarehouse({ code: "BACK", name: "Duplicate Warehouse", type: "store" }), null);
+assert.equal(store.addWarehouse({ code: "STORE", name: "Storefront", type: "store" }).type, "store");
+assert.equal(store.listWarehouses({ activeOnly: true }).length, 3);
+assert.equal(store.listWarehouses({ query: "store" }).length, 1);
+assert.equal(store.deactivateWarehouse(2).active, false);
+assert.equal(store.listWarehouses({ activeOnly: true }).length, 2);
 assert.equal(store.updateProduct(2, { sku: "B002", name: "Tea Box", category: "Drink", unit: "box", cost: 130, price: 280, safetyStock: 4 }).name, "Tea Box");
 assert.equal(store.updateProduct(2, { sku: "A001", name: "Bad SKU", category: "Drink", unit: "box", cost: 130, price: 280, safetyStock: 4 }).error, "DUPLICATE_SKU");
 assert.equal(store.updateProduct(999, { sku: "X", name: "Missing", category: "Other", unit: "pc", cost: 1, price: 2, safetyStock: 0 }), null);
@@ -65,6 +79,8 @@ assert.equal(store.removePurchase(1), true);
 assert.equal(store.inventoryReport().find((item) => item.productId === 1).onHand, 0);
 assert.equal(store.removeSale(999), false);
 assert.equal(store.removePurchase(999), false);
+assert.equal(store.snapshot().productCategories.length, 2);
+assert.equal(store.snapshot().warehouses.length, 3);
 
 const orderStore = createInventoryStore({
   products: [
@@ -102,6 +118,40 @@ assert.equal(saleOrder.lines.length, 2);
 assert.equal(saleOrder.total, 1040);
 assert.equal(orderStore.listSales({ query: "SO-202605-001" }).length, 2);
 assert.equal(orderStore.addSaleOrder({ customer: "Retail", date: "2026-05-16", items: [{ productId: 2, quantity: 99, unitPrice: 290 }] }).error, "INSUFFICIENT_STOCK");
+
+const warehouseStore = createInventoryStore({
+  products: [
+    { id: 1, sku: "A001", name: "Coffee Beans", category: "Food", unit: "bag", cost: 250, price: 420, safetyStock: 5, active: true }
+  ],
+  warehouses: [
+    { id: 1, code: "MAIN", name: "Main Warehouse", type: "warehouse", note: "", active: true },
+    { id: 2, code: "STORE", name: "Storefront", type: "store", note: "", active: true }
+  ],
+  purchases: [],
+  sales: [],
+  adjustments: []
+});
+warehouseStore.addPurchase({ productId: 1, warehouseId: 1, quantity: 10, unitCost: 250, supplier: "Vendor", date: "2026-05-10" });
+warehouseStore.addPurchase({ productId: 1, warehouseId: 2, quantity: 5, unitCost: 250, supplier: "Vendor", date: "2026-05-10" });
+assert.equal(warehouseStore.inventoryReport({ warehouseId: 1 }).find((item) => item.productId === 1).onHand, 10);
+assert.equal(warehouseStore.inventoryReport({ warehouseId: 2 }).find((item) => item.productId === 1).onHand, 5);
+assert.equal(warehouseStore.addSale({ productId: 1, warehouseId: 2, quantity: 3, unitPrice: 450, customer: "Retail", date: "2026-05-11" }).quantity, 3);
+assert.equal(warehouseStore.inventoryReport({ warehouseId: 2 }).find((item) => item.productId === 1).onHand, 2);
+assert.equal(warehouseStore.inventoryReport({ warehouseId: 1 }).find((item) => item.productId === 1).onHand, 10);
+assert.equal(warehouseStore.addSale({ productId: 1, warehouseId: 2, quantity: 99, unitPrice: 450, customer: "Retail", date: "2026-05-12" }).error, "INSUFFICIENT_STOCK");
+assert.equal(warehouseStore.addStockCount({ productId: 1, warehouseId: 1, countedQuantity: 8, reason: "Count", date: "2026-05-13" }).quantity, -2);
+assert.equal(warehouseStore.inventoryReport({ warehouseId: 1 }).find((item) => item.productId === 1).onHand, 8);
+assert.equal(warehouseStore.listSales({ query: "store" }).length, 1);
+assert.equal(warehouseStore.stockMovements({ query: "STORE" }).some((item) => item.warehouseName === "Storefront"), true);
+assert.equal(warehouseStore.exportInventoryRows().some((row) => row.warehouse.includes("STORE")), true);
+const warehouseSummary = warehouseStore.warehouseStockSummary();
+assert.equal(warehouseSummary.find((item) => item.warehouse.code === "MAIN").onHand, 8);
+assert.equal(warehouseSummary.find((item) => item.warehouse.code === "STORE").onHand, 2);
+assert.equal(warehouseStore.warehouseStockSummary({ warehouseId: 2 }).length, 1);
+const productDistribution = warehouseStore.productWarehouseSummary().find((item) => item.productId === 1);
+assert.equal(productDistribution.totalOnHand, 10);
+assert.equal(productDistribution.warehouses.length, 2);
+assert.equal(warehouseStore.exportInventoryRows({ warehouseId: 2 }).every((row) => row.warehouse.includes("STORE")), true);
 
 const adjustmentStore = createInventoryStore({
   products: [

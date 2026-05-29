@@ -12,14 +12,29 @@
     let partners = Array.isArray(initialState && initialState.partners)
       ? initialState.partners.map(copyPartner)
       : [];
+    let productCategories = Array.isArray(initialState && initialState.productCategories)
+      ? initialState.productCategories.map(copyProductCategory)
+      : [];
+    let warehouses = Array.isArray(initialState && initialState.warehouses)
+      ? initialState.warehouses.map(copyWarehouse)
+      : [];
+    if (!warehouses.length) {
+      warehouses = [defaultWarehouse()];
+    }
     let adjustments = Array.isArray(initialState && initialState.adjustments)
       ? initialState.adjustments.map(copyAdjustment)
       : [];
+    const fallbackWarehouseId = defaultWarehouseId();
+    purchases = purchases.map((purchase) => ensureWarehouseOnRow(purchase, fallbackWarehouseId));
+    sales = sales.map((sale) => ensureWarehouseOnRow(sale, fallbackWarehouseId));
+    adjustments = adjustments.map((adjustment) => ensureWarehouseOnRow(adjustment, fallbackWarehouseId));
 
     let nextProductId = nextId(products);
     let nextPurchaseId = nextId(purchases);
     let nextSaleId = nextId(sales);
     let nextPartnerId = nextId(partners);
+    let nextCategoryId = nextId(productCategories);
+    let nextWarehouseId = nextId(warehouses);
     let nextAdjustmentId = nextId(adjustments);
 
     function addProduct(input) {
@@ -70,6 +85,60 @@
       });
 
       return updated ? copyProduct(updated) : null;
+    }
+
+    function addProductCategory(input) {
+      const category = normalizeProductCategory(input, nextCategoryId);
+
+      if (!category || productCategories.some((item) => sameCategory(item, category))) {
+        return null;
+      }
+
+      nextCategoryId += 1;
+      productCategories = [category].concat(productCategories);
+      return copyProductCategory(category);
+    }
+
+    function deactivateProductCategory(id) {
+      let updated = null;
+
+      productCategories = productCategories.map((category) => {
+        if (category.id !== Number(id)) {
+          return category;
+        }
+
+        updated = Object.assign({}, category, { active: false });
+        return updated;
+      });
+
+      return updated ? copyProductCategory(updated) : null;
+    }
+
+    function addWarehouse(input) {
+      const warehouse = normalizeWarehouse(input, nextWarehouseId);
+
+      if (!warehouse || warehouses.some((item) => sameWarehouse(item, warehouse))) {
+        return null;
+      }
+
+      nextWarehouseId += 1;
+      warehouses = [warehouse].concat(warehouses);
+      return copyWarehouse(warehouse);
+    }
+
+    function deactivateWarehouse(id) {
+      let updated = null;
+
+      warehouses = warehouses.map((warehouse) => {
+        if (warehouse.id !== Number(id)) {
+          return warehouse;
+        }
+
+        updated = Object.assign({}, warehouse, { active: false });
+        return updated;
+      });
+
+      return updated ? copyWarehouse(updated) : null;
     }
 
     function addPartner(input) {
@@ -125,29 +194,32 @@
     function addPurchase(input) {
       const purchase = normalizePurchase(input, nextPurchaseId);
       const product = findProduct(purchase && purchase.productId);
+      const warehouse = resolveActiveWarehouse(purchase && purchase.warehouseId);
 
-      if (!purchase || !product || !product.active) {
+      if (!purchase || !product || !product.active || !warehouse) {
         return null;
       }
 
+      const saved = Object.assign({}, purchase, { warehouseId: warehouse.id });
       nextPurchaseId += 1;
-      purchases = [purchase].concat(purchases);
+      purchases = [saved].concat(purchases);
       products = products.map((item) => {
-        if (item.id !== purchase.productId) {
+        if (item.id !== saved.productId) {
           return item;
         }
 
-        return Object.assign({}, item, { cost: purchase.unitCost });
+        return Object.assign({}, item, { cost: saved.unitCost });
       });
 
-      return copyPurchase(purchase);
+      return copyPurchase(saved);
     }
 
     function addPurchaseOrder(input) {
       const date = normalizeDate(input && input.date);
       const items = normalizeOrderItems(input && input.items, "unitCost");
+      const warehouse = resolveActiveWarehouse(input && input.warehouseId);
 
-      if (!date || !items.length) {
+      if (!date || !items.length || !warehouse) {
         return null;
       }
 
@@ -168,7 +240,8 @@
           supplier: normalizeText(input && input.supplier),
           date,
           note: normalizeText(input && input.note),
-          documentNo
+          documentNo,
+          warehouseId: warehouse.id
         };
         nextPurchaseId += 1;
         return purchase;
@@ -190,25 +263,28 @@
     function addSale(input) {
       const sale = normalizeSale(input, nextSaleId);
       const product = findProduct(sale && sale.productId);
+      const warehouse = resolveActiveWarehouse(sale && sale.warehouseId);
 
-      if (!sale || !product || !product.active) {
+      if (!sale || !product || !product.active || !warehouse) {
         return null;
       }
 
-      if (stockForProduct(sale.productId).onHand < sale.quantity) {
+      if (stockForProduct(sale.productId, warehouse.id).onHand < sale.quantity) {
         return { error: "INSUFFICIENT_STOCK" };
       }
 
+      const saved = Object.assign({}, sale, { warehouseId: warehouse.id });
       nextSaleId += 1;
-      sales = [sale].concat(sales);
-      return copySale(sale);
+      sales = [saved].concat(sales);
+      return copySale(saved);
     }
 
     function addSaleOrder(input) {
       const date = normalizeDate(input && input.date);
       const items = normalizeOrderItems(input && input.items, "unitPrice");
+      const warehouse = resolveActiveWarehouse(input && input.warehouseId);
 
-      if (!date || !items.length) {
+      if (!date || !items.length || !warehouse) {
         return null;
       }
 
@@ -225,7 +301,7 @@
       });
 
       for (const [productId, quantity] of requestedByProduct.entries()) {
-        if (stockForProduct(productId).onHand < quantity) {
+        if (stockForProduct(productId, warehouse.id).onHand < quantity) {
           return { error: "INSUFFICIENT_STOCK" };
         }
       }
@@ -240,7 +316,8 @@
           customer: normalizeText(input && input.customer),
           date,
           note: normalizeText(input && input.note),
-          documentNo
+          documentNo,
+          warehouseId: warehouse.id
         };
         nextSaleId += 1;
         return sale;
@@ -262,7 +339,7 @@
         return false;
       }
 
-      const currentStock = stockForProduct(purchase.productId).onHand;
+      const currentStock = stockForProduct(purchase.productId, purchase.warehouseId).onHand;
       if (currentStock - purchase.quantity < 0) {
         return { error: "NEGATIVE_STOCK" };
       }
@@ -280,12 +357,14 @@
     function addStockAdjustment(input) {
       const adjustment = normalizeAdjustment(input, nextAdjustmentId);
       const product = findProduct(adjustment && adjustment.productId);
+      const warehouse = resolveActiveWarehouse(adjustment && adjustment.warehouseId);
 
-      if (!adjustment || !product || !product.active) {
+      if (!adjustment || !product || !product.active || !warehouse) {
         return null;
       }
 
       const saved = Object.assign({}, adjustment, {
+        warehouseId: warehouse.id,
         documentNo: adjustment.documentNo || nextDocumentNo("ADJ", adjustment.date, adjustments)
       });
       nextAdjustmentId += 1;
@@ -297,12 +376,13 @@
       const productId = Number(input && input.productId);
       const countedQuantity = nonNegativeNumber(input && input.countedQuantity);
       const product = findProduct(productId);
+      const warehouse = resolveActiveWarehouse(input && input.warehouseId);
 
-      if (!product || !product.active || countedQuantity === null) {
+      if (!product || !product.active || countedQuantity === null || !warehouse) {
         return null;
       }
 
-      const diff = countedQuantity - stockForProduct(productId).onHand;
+      const diff = countedQuantity - stockForProduct(productId, warehouse.id).onHand;
       if (diff === 0) {
         return { error: "NO_DIFFERENCE" };
       }
@@ -310,6 +390,7 @@
       return addStockAdjustment({
         productId,
         quantity: diff,
+        warehouseId: warehouse.id,
         reason: normalizeText(input && input.reason) || "盤點",
         date: input && input.date,
         note: input && input.note,
@@ -349,9 +430,12 @@
           }
 
           const product = findProduct(purchase.productId);
+          const warehouse = findWarehouse(purchase.warehouseId);
           return [
             product && product.sku,
             product && product.name,
+            warehouse && warehouse.code,
+            warehouse && warehouse.name,
             purchase.documentNo,
             purchase.supplier,
             purchase.note
@@ -374,9 +458,12 @@
           }
 
           const product = findProduct(sale.productId);
+          const warehouse = findWarehouse(sale.warehouseId);
           return [
             product && product.sku,
             product && product.name,
+            warehouse && warehouse.code,
+            warehouse && warehouse.name,
             sale.documentNo,
             sale.customer,
             sale.note
@@ -407,6 +494,44 @@
         .map(copyPartner);
     }
 
+    function listProductCategories(options) {
+      const filter = Object.assign({ query: "", activeOnly: false }, options);
+      const query = normalizeText(filter.query).toLowerCase();
+
+      return productCategories
+        .filter((category) => !filter.activeOnly || category.active)
+        .filter((category) => {
+          if (!query) {
+            return true;
+          }
+
+          return [category.code, category.name, category.note]
+            .some((value) => normalizeText(value).toLowerCase().includes(query));
+        })
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+        .map(copyProductCategory);
+    }
+
+    function listWarehouses(options) {
+      const filter = Object.assign({ query: "", activeOnly: false }, options);
+      const query = normalizeText(filter.query).toLowerCase();
+
+      return warehouses
+        .filter((warehouse) => !filter.activeOnly || warehouse.active)
+        .filter((warehouse) => {
+          if (!query) {
+            return true;
+          }
+
+          return [warehouse.code, warehouse.name, warehouse.type, warehouse.note]
+            .some((value) => normalizeText(value).toLowerCase().includes(query));
+        })
+        .slice()
+        .sort((a, b) => a.code.localeCompare(b.code))
+        .map(copyWarehouse);
+    }
+
     function listAdjustments(options) {
       const filter = Object.assign({ query: "", month: "" }, options);
       const query = normalizeText(filter.query).toLowerCase();
@@ -419,9 +544,12 @@
           }
 
           const product = findProduct(adjustment.productId);
+          const warehouse = findWarehouse(adjustment.warehouseId);
           return [
             product && product.sku,
             product && product.name,
+            warehouse && warehouse.code,
+            warehouse && warehouse.name,
             adjustment.documentNo,
             adjustment.reason,
             adjustment.note
@@ -436,17 +564,23 @@
       const filter = Object.assign({ query: "", category: "", lowStockOnly: false, sort: "sku" }, options);
       const query = normalizeText(filter.query).toLowerCase();
 
+      const reportWarehouses = warehousesForReport(filter.warehouseId);
       const rows = products
         .filter((product) => !filter.category || product.category === filter.category)
-        .filter((product) => {
+        .reduce((result, product) => result.concat(reportWarehouses.map((warehouse) => stockForProduct(product.id, warehouse.id))), [])
+        .filter((item) => {
           if (!query) {
             return true;
           }
 
-          return [product.sku, product.name, product.category]
-            .some((value) => normalizeText(value).toLowerCase().includes(query));
+          return [
+            item.product && item.product.sku,
+            item.product && item.product.name,
+            item.product && item.product.category,
+            item.warehouse && item.warehouse.code,
+            item.warehouse && item.warehouse.name
+          ].some((value) => normalizeText(value).toLowerCase().includes(query));
         })
-        .map((product) => stockForProduct(product.id))
         .filter((item) => !filter.lowStockOnly || item.lowStock);
 
       return sortInventoryRows(rows, filter.sort);
@@ -470,6 +604,63 @@
         .filter((item) => item.revenue > 0)
         .sort((a, b) => b.grossProfit - a.grossProfit || b.revenue - a.revenue)
         .slice(0, limit || 5);
+    }
+
+    function warehouseStockSummary(options) {
+      const rows = inventoryReport(options);
+      const summaries = new Map();
+
+      rows.forEach((row) => {
+        const key = row.warehouseId || 0;
+        const summary = summaries.get(key) || {
+          warehouse: row.warehouse ? copyWarehouse(row.warehouse) : null,
+          warehouseId: key,
+          productCount: 0,
+          onHand: 0,
+          stockValue: 0,
+          lowStockCount: 0
+        };
+
+        summary.productCount += row.onHand !== 0 || row.lowStock ? 1 : 0;
+        summary.onHand += row.onHand;
+        summary.stockValue += row.stockValue;
+        summary.lowStockCount += row.lowStock ? 1 : 0;
+        summaries.set(key, summary);
+      });
+
+      return Array.from(summaries.values())
+        .sort((a, b) => normalizeText(a.warehouse && a.warehouse.code).localeCompare(normalizeText(b.warehouse && b.warehouse.code)));
+    }
+
+    function productWarehouseSummary(options) {
+      const rows = inventoryReport(options);
+      const summaries = new Map();
+
+      rows.forEach((row) => {
+        const key = row.productId;
+        const summary = summaries.get(key) || {
+          product: row.product ? copyProduct(row.product) : null,
+          productId: row.productId,
+          totalOnHand: 0,
+          stockValue: 0,
+          lowStockCount: 0,
+          warehouses: []
+        };
+
+        summary.totalOnHand += row.onHand;
+        summary.stockValue += row.stockValue;
+        summary.lowStockCount += row.lowStock ? 1 : 0;
+        summary.warehouses.push({
+          warehouse: row.warehouse ? copyWarehouse(row.warehouse) : null,
+          warehouseId: row.warehouseId,
+          onHand: row.onHand,
+          lowStock: row.lowStock
+        });
+        summaries.set(key, summary);
+      });
+
+      return Array.from(summaries.values())
+        .sort((a, b) => a.product.sku.localeCompare(b.product.sku));
     }
 
     function reportSummary(options) {
@@ -502,6 +693,7 @@
       const query = normalizeText(filter.query).toLowerCase();
       const purchaseMovements = purchases.map((purchase) => {
         const product = findProduct(purchase.productId);
+        const warehouse = findWarehouse(purchase.warehouseId);
         return {
           id: `purchase-${purchase.id}`,
           sourceId: purchase.id,
@@ -509,6 +701,9 @@
           label: "進貨",
           date: purchase.date,
           productId: purchase.productId,
+          warehouseId: purchase.warehouseId,
+          warehouseCode: warehouse ? warehouse.code : "",
+          warehouseName: warehouse ? warehouse.name : "",
           sku: product ? product.sku : "",
           productName: product ? product.name : "未知商品",
           quantity: purchase.quantity,
@@ -521,6 +716,7 @@
       });
       const saleMovements = sales.map((sale) => {
         const product = findProduct(sale.productId);
+        const warehouse = findWarehouse(sale.warehouseId);
         return {
           id: `sale-${sale.id}`,
           sourceId: sale.id,
@@ -528,6 +724,9 @@
           label: "銷售",
           date: sale.date,
           productId: sale.productId,
+          warehouseId: sale.warehouseId,
+          warehouseCode: warehouse ? warehouse.code : "",
+          warehouseName: warehouse ? warehouse.name : "",
           sku: product ? product.sku : "",
           productName: product ? product.name : "未知商品",
           quantity: -sale.quantity,
@@ -540,6 +739,7 @@
       });
       const adjustmentMovements = adjustments.map((adjustment) => {
         const product = findProduct(adjustment.productId);
+        const warehouse = findWarehouse(adjustment.warehouseId);
         return {
           id: `adjustment-${adjustment.id}`,
           sourceId: adjustment.id,
@@ -547,6 +747,9 @@
           label: "調整",
           date: adjustment.date,
           productId: adjustment.productId,
+          warehouseId: adjustment.warehouseId,
+          warehouseCode: warehouse ? warehouse.code : "",
+          warehouseName: warehouse ? warehouse.name : "",
           sku: product ? product.sku : "",
           productName: product ? product.name : "未知商品",
           quantity: adjustment.quantity,
@@ -566,22 +769,28 @@
             return true;
           }
 
-          return [item.sku, item.productName, item.documentNo, item.party, item.note, item.label]
+          return [item.sku, item.productName, item.warehouseCode, item.warehouseName, item.documentNo, item.party, item.note, item.label]
             .some((value) => normalizeText(value).toLowerCase().includes(query));
         })
         .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
     }
 
     function categories() {
-      return Array.from(new Set(products.map((product) => product.category)))
+      const categoryNames = productCategories
+        .filter((category) => category.active)
+        .map((category) => category.name)
+        .concat(products.map((product) => product.category));
+
+      return Array.from(new Set(categoryNames))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b));
     }
 
-    function exportInventoryRows() {
-      return inventoryReport().map((item) => ({
+    function exportInventoryRows(options) {
+      return inventoryReport(options).map((item) => ({
         sku: item.product.sku,
         name: item.product.name,
+        warehouse: item.warehouse ? `${item.warehouse.code} ${item.warehouse.name}` : "",
         category: item.product.category,
         unit: item.product.unit,
         onHand: item.onHand,
@@ -600,32 +809,37 @@
       return {
         products: products.map(copyProduct),
         partners: partners.map(copyPartner),
+        productCategories: productCategories.map(copyProductCategory),
+        warehouses: warehouses.map(copyWarehouse),
         adjustments: adjustments.map(copyAdjustment),
         purchases: purchases.map(copyPurchase),
         sales: sales.map(copySale)
       };
     }
 
-    function stockForProduct(productId) {
+    function stockForProduct(productId, warehouseId) {
       const product = findProduct(productId);
+      const warehouse = warehouseId ? findWarehouse(warehouseId) : null;
       const purchased = purchases
-        .filter((purchase) => purchase.productId === productId)
+        .filter((purchase) => purchase.productId === Number(productId) && (!warehouseId || purchase.warehouseId === Number(warehouseId)))
         .reduce((total, purchase) => total + purchase.quantity, 0);
       const sold = sales
-        .filter((sale) => sale.productId === productId)
+        .filter((sale) => sale.productId === Number(productId) && (!warehouseId || sale.warehouseId === Number(warehouseId)))
         .reduce((total, sale) => total + sale.quantity, 0);
       const adjusted = adjustments
-        .filter((adjustment) => adjustment.productId === productId)
+        .filter((adjustment) => adjustment.productId === Number(productId) && (!warehouseId || adjustment.warehouseId === Number(warehouseId)))
         .reduce((total, adjustment) => total + adjustment.quantity, 0);
       const revenue = sales
-        .filter((sale) => sale.productId === productId)
+        .filter((sale) => sale.productId === Number(productId) && (!warehouseId || sale.warehouseId === Number(warehouseId)))
         .reduce((total, sale) => total + sale.quantity * sale.unitPrice, 0);
       const onHand = purchased + adjusted - sold;
       const cost = product ? product.cost : 0;
 
       return {
         product: product ? copyProduct(product) : null,
-        productId,
+        productId: Number(productId),
+        warehouse: warehouse ? copyWarehouse(warehouse) : null,
+        warehouseId: warehouse ? warehouse.id : 0,
         onHand,
         purchased,
         sold,
@@ -645,6 +859,37 @@
       return partners.find((partner) => partner.id === Number(id)) || null;
     }
 
+    function findWarehouse(id) {
+      return warehouses.find((warehouse) => warehouse.id === Number(id)) || null;
+    }
+
+    function defaultWarehouseId() {
+      const active = warehouses
+        .filter((warehouse) => warehouse.active)
+        .sort((a, b) => a.id - b.id)[0];
+      const first = active || warehouses.slice().sort((a, b) => a.id - b.id)[0] || defaultWarehouse();
+      return first.id;
+    }
+
+    function resolveActiveWarehouse(id) {
+      const warehouse = findWarehouse(id) || findWarehouse(defaultWarehouseId());
+      if (warehouse && warehouse.active) {
+        return warehouse;
+      }
+
+      return warehouses.find((item) => item.active) || warehouse || null;
+    }
+
+    function warehousesForReport(warehouseId) {
+      if (warehouseId) {
+        const warehouse = findWarehouse(warehouseId);
+        return warehouse ? [warehouse] : [];
+      }
+
+      const active = warehouses.filter((warehouse) => warehouse.active);
+      return active.length ? active : warehouses;
+    }
+
     return {
       addProduct,
       addPurchase,
@@ -654,12 +899,18 @@
       deactivateProduct,
       deactivatePartner,
       addPartner,
+      addProductCategory,
+      addWarehouse,
       addStockAdjustment,
       addStockCount,
       exportInventoryRows,
       grossProfitRanking,
+      warehouseStockSummary,
+      productWarehouseSummary,
       inventoryReport,
       listPartners,
+      listProductCategories,
+      listWarehouses,
       listProducts,
       listPurchases,
       listSales,
@@ -672,8 +923,80 @@
       snapshot,
       stockMovements,
       updatePartner,
-      updateProduct
+      updateProduct,
+      deactivateProductCategory,
+      deactivateWarehouse
     };
+  }
+
+  function normalizeProductCategory(input, id) {
+    const code = normalizeText(input && input.code).toUpperCase();
+    const name = normalizeText(input && input.name);
+    const sortOrder = nonNegativeNumber(input && input.sortOrder);
+
+    if (!code || !name || sortOrder === null) {
+      return null;
+    }
+
+    return {
+      id,
+      code,
+      name,
+      sortOrder,
+      note: normalizeText(input && input.note),
+      active: input && input.active === false ? false : true
+    };
+  }
+
+  function copyProductCategory(category) {
+    return {
+      id: Number(category.id),
+      code: normalizeText(category.code).toUpperCase(),
+      name: normalizeText(category.name),
+      sortOrder: nonNegativeNumber(category.sortOrder) || 0,
+      note: normalizeText(category.note),
+      active: category.active === false ? false : true
+    };
+  }
+
+  function sameCategory(left, right) {
+    return normalizeText(left.code).toUpperCase() === normalizeText(right.code).toUpperCase()
+      || normalizeText(left.name).toLowerCase() === normalizeText(right.name).toLowerCase();
+  }
+
+  function normalizeWarehouse(input, id) {
+    const code = normalizeText(input && input.code).toUpperCase();
+    const name = normalizeText(input && input.name);
+    const type = normalizeText(input && input.type) || "warehouse";
+
+    if (!code || !name) {
+      return null;
+    }
+
+    return {
+      id,
+      code,
+      name,
+      type,
+      note: normalizeText(input && input.note),
+      active: input && input.active === false ? false : true
+    };
+  }
+
+  function copyWarehouse(warehouse) {
+    return {
+      id: Number(warehouse.id),
+      code: normalizeText(warehouse.code).toUpperCase(),
+      name: normalizeText(warehouse.name),
+      type: normalizeText(warehouse.type) || "warehouse",
+      note: normalizeText(warehouse.note),
+      active: warehouse.active === false ? false : true
+    };
+  }
+
+  function sameWarehouse(left, right) {
+    return normalizeText(left.code).toUpperCase() === normalizeText(right.code).toUpperCase()
+      || normalizeText(left.name).toLowerCase() === normalizeText(right.name).toLowerCase();
   }
 
   function normalizePartner(input, id) {
@@ -712,24 +1035,27 @@
   }
 
   function sortInventoryRows(rows, sort) {
+    const bySkuAndWarehouse = (a, b) => a.product.sku.localeCompare(b.product.sku)
+      || normalizeText(a.warehouse && a.warehouse.code).localeCompare(normalizeText(b.warehouse && b.warehouse.code));
+
     return rows.slice().sort((a, b) => {
       if (sort === "onHandAsc") {
-        return a.onHand - b.onHand || a.product.sku.localeCompare(b.product.sku);
+        return a.onHand - b.onHand || bySkuAndWarehouse(a, b);
       }
 
       if (sort === "stockValueDesc") {
-        return b.stockValue - a.stockValue || a.product.sku.localeCompare(b.product.sku);
+        return b.stockValue - a.stockValue || bySkuAndWarehouse(a, b);
       }
 
       if (sort === "grossProfitDesc") {
-        return b.grossProfit - a.grossProfit || a.product.sku.localeCompare(b.product.sku);
+        return b.grossProfit - a.grossProfit || bySkuAndWarehouse(a, b);
       }
 
       if (sort === "lowStockFirst") {
-        return Number(b.lowStock) - Number(a.lowStock) || a.onHand - b.onHand || a.product.sku.localeCompare(b.product.sku);
+        return Number(b.lowStock) - Number(a.lowStock) || a.onHand - b.onHand || bySkuAndWarehouse(a, b);
       }
 
-      return a.product.sku.localeCompare(b.product.sku);
+      return bySkuAndWarehouse(a, b);
     });
   }
 
@@ -772,6 +1098,7 @@
     return {
       id,
       productId,
+      warehouseId: Number(input && input.warehouseId) || 0,
       quantity,
       unitCost,
       supplier: normalizeText(input && input.supplier),
@@ -794,6 +1121,7 @@
     return {
       id,
       productId,
+      warehouseId: Number(input && input.warehouseId) || 0,
       quantity,
       unitPrice,
       customer: normalizeText(input && input.customer),
@@ -815,6 +1143,7 @@
     return {
       id,
       productId,
+      warehouseId: Number(input && input.warehouseId) || 0,
       quantity,
       reason: normalizeText(input && input.reason) || "調整",
       date,
@@ -841,6 +1170,7 @@
     return {
       id: Number(purchase.id),
       productId: Number(purchase.productId),
+      warehouseId: Number(purchase.warehouseId) || 0,
       quantity: positiveNumber(purchase.quantity) || 0,
       unitCost: nonNegativeNumber(purchase.unitCost) || 0,
       supplier: normalizeText(purchase.supplier),
@@ -854,6 +1184,7 @@
     return {
       id: Number(sale.id),
       productId: Number(sale.productId),
+      warehouseId: Number(sale.warehouseId) || 0,
       quantity: positiveNumber(sale.quantity) || 0,
       unitPrice: nonNegativeNumber(sale.unitPrice) || 0,
       customer: normalizeText(sale.customer),
@@ -867,12 +1198,30 @@
     return {
       id: Number(adjustment.id),
       productId: Number(adjustment.productId),
+      warehouseId: Number(adjustment.warehouseId) || 0,
       quantity: Math.round(Number(adjustment.quantity)) || 0,
       reason: normalizeText(adjustment.reason) || "調整",
       date: normalizeDate(adjustment.date),
       note: normalizeText(adjustment.note),
       documentNo: normalizeText(adjustment.documentNo)
     };
+  }
+
+  function defaultWarehouse() {
+    return {
+      id: 1,
+      code: "MAIN",
+      name: "主倉",
+      type: "warehouse",
+      note: "預設倉庫",
+      active: true
+    };
+  }
+
+  function ensureWarehouseOnRow(row, warehouseId) {
+    return Object.assign({}, row, {
+      warehouseId: Number(row && row.warehouseId) || warehouseId
+    });
   }
 
   function nextId(items) {

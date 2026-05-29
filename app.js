@@ -1,8 +1,18 @@
 const storageKey = "stockflow-inventory-state";
-const appVersion = "1.9.0";
+const appVersion = "1.14.0";
+const assetVersion = "1.14.0";
+const dataSchemaVersion = 5;
 const today = new Date().toISOString().slice(0, 10);
 
 const seedState = {
+  productCategories: [
+    { id: 1, code: "FOOD", name: "食品", sortOrder: 10, note: "可食用商品", active: true },
+    { id: 2, code: "SUPPLY", name: "用品", sortOrder: 20, note: "杯器與周邊用品", active: true }
+  ],
+  warehouses: [
+    { id: 1, code: "MAIN", name: "主倉", type: "warehouse", note: "預設倉庫", active: true },
+    { id: 2, code: "STORE", name: "門市", type: "store", note: "前台銷售區", active: true }
+  ],
   products: [
     { id: 1, sku: "P-COF-001", name: "精品咖啡豆", category: "食品", unit: "包", cost: 260, price: 450, safetyStock: 5, active: true },
     { id: 2, sku: "P-MUG-002", name: "陶瓷馬克杯", category: "用品", unit: "個", cost: 120, price: 280, safetyStock: 8, active: true },
@@ -29,10 +39,12 @@ const seedState = {
   ]
 };
 
-let store = createInventoryStore(loadState());
+const initialLoad = loadState();
+let store = createInventoryStore(initialLoad.state);
 let activeTab = "overview";
 let editingProductId = null;
 let editingPartnerId = null;
+let pendingRestoreState = null;
 
 const tabs = document.querySelectorAll(".tab");
 const views = document.querySelectorAll(".view");
@@ -45,11 +57,15 @@ const partnerForm = document.querySelector("#partner-form");
 const partnerFormTitle = document.querySelector("#partner-form-title");
 const partnerSubmitButton = document.querySelector("#partner-submit-button");
 const cancelPartnerEdit = document.querySelector("#cancel-partner-edit");
+const categoryForm = document.querySelector("#category-form");
+const warehouseForm = document.querySelector("#warehouse-form");
 const purchaseForm = document.querySelector("#purchase-form");
 const saleForm = document.querySelector("#sale-form");
 const adjustmentForm = document.querySelector("#adjustment-form");
 const productQuery = document.querySelector("#product-query");
 const productCategoryFilter = document.querySelector("#product-category-filter");
+const categoryQuery = document.querySelector("#category-query");
+const warehouseQuery = document.querySelector("#warehouse-query");
 const partnerQuery = document.querySelector("#partner-query");
 const partnerRoleFilter = document.querySelector("#partner-role-filter");
 const purchaseQuery = document.querySelector("#purchase-query");
@@ -62,15 +78,23 @@ const reportMonth = document.querySelector("#report-month");
 const movementQuery = document.querySelector("#movement-query");
 const stockQuery = document.querySelector("#stock-query");
 const categoryFilter = document.querySelector("#category-filter");
+const warehouseFilter = document.querySelector("#warehouse-filter");
 const stockSort = document.querySelector("#stock-sort");
 const lowStockOnly = document.querySelector("#low-stock-only");
 const exportButton = document.querySelector("#export-button");
 const resetButton = document.querySelector("#reset-button");
+const backupExportButton = document.querySelector("#backup-export-button");
+const backupFileInput = document.querySelector("#backup-file-input");
+const restoreButton = document.querySelector("#restore-button");
+const backupPreview = document.querySelector("#backup-preview");
 
 setDefaultDates();
 document.querySelector("#app-version").textContent = `v${appVersion}`;
 bindEvents();
 render();
+if (initialLoad.notice) {
+  setStatus(initialLoad.notice);
+}
 
 function bindEvents() {
   tabs.forEach((tab) => {
@@ -140,11 +164,43 @@ function bindEvents() {
     renderPartners();
   });
 
+  categoryForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const category = store.addProductCategory(Object.fromEntries(new FormData(categoryForm)));
+
+    if (!category) {
+      setStatus("產品類別儲存失敗，請確認代碼和名稱不可重複。", true);
+      return;
+    }
+
+    categoryForm.reset();
+    categoryForm.elements.sortOrder.value = "10";
+    saveState();
+    setStatus(`已新增產品類別：${category.name}`);
+    render();
+  });
+
+  warehouseForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const warehouse = store.addWarehouse(Object.fromEntries(new FormData(warehouseForm)));
+
+    if (!warehouse) {
+      setStatus("倉庫儲存失敗，請確認代碼和名稱不可重複。", true);
+      return;
+    }
+
+    warehouseForm.reset();
+    saveState();
+    setStatus(`已新增倉庫：${warehouse.name}`);
+    render();
+  });
+
   purchaseForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(purchaseForm));
     const purchase = store.addPurchaseOrder({
       supplier: data.supplier,
+      warehouseId: data.warehouseId,
       date: data.date,
       note: data.note,
       items: collectOrderItems(data, "unitCost")
@@ -167,6 +223,7 @@ function bindEvents() {
     const data = Object.fromEntries(new FormData(saleForm));
     const sale = store.addSaleOrder({
       customer: data.customer,
+      warehouseId: data.warehouseId,
       date: data.date,
       note: data.note,
       items: collectOrderItems(data, "unitPrice")
@@ -255,6 +312,38 @@ function bindEvents() {
     }
   });
 
+  document.querySelector("#category-table").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-deactivate-category-id]");
+
+    if (!button) {
+      return;
+    }
+
+    const category = store.deactivateProductCategory(Number(button.dataset.deactivateCategoryId));
+
+    if (category) {
+      saveState();
+      setStatus(`已停用產品類別：${category.name}`);
+      render();
+    }
+  });
+
+  document.querySelector("#warehouse-table").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-deactivate-warehouse-id]");
+
+    if (!button) {
+      return;
+    }
+
+    const warehouse = store.deactivateWarehouse(Number(button.dataset.deactivateWarehouseId));
+
+    if (warehouse) {
+      saveState();
+      setStatus(`已停用倉庫：${warehouse.name}`);
+      render();
+    }
+  });
+
   document.querySelector("#purchase-list").addEventListener("click", (event) => {
     const button = event.target.closest("[data-remove-purchase-id]");
 
@@ -292,6 +381,8 @@ function bindEvents() {
 
   productQuery.addEventListener("input", renderProducts);
   productCategoryFilter.addEventListener("change", renderProducts);
+  categoryQuery.addEventListener("input", renderProductCategories);
+  warehouseQuery.addEventListener("input", renderWarehouses);
   partnerQuery.addEventListener("input", renderPartners);
   partnerRoleFilter.addEventListener("change", renderPartners);
   purchaseQuery.addEventListener("input", renderPurchases);
@@ -304,12 +395,46 @@ function bindEvents() {
   movementQuery.addEventListener("input", renderReports);
   stockQuery.addEventListener("input", renderStock);
   categoryFilter.addEventListener("change", renderStock);
+  warehouseFilter.addEventListener("change", renderStock);
   stockSort.addEventListener("change", renderStock);
   lowStockOnly.addEventListener("change", renderStock);
 
   exportButton.addEventListener("click", () => {
-    downloadCsv("inventory-report.csv", toCsv(store.exportInventoryRows()));
+    downloadCsv("inventory-report.csv", toCsv(store.exportInventoryRows(currentStockOptions())));
     setStatus("已匯出庫存 CSV。");
+  });
+
+  backupExportButton.addEventListener("click", () => {
+    downloadJson(`stockflow-backup-${today}.json`, createStorageEnvelope(store.snapshot()));
+    setStatus("已匯出完整備份 JSON。");
+  });
+
+  backupFileInput.addEventListener("change", () => {
+    pendingRestoreState = null;
+    restoreButton.disabled = true;
+    const file = backupFileInput.files && backupFileInput.files[0];
+
+    if (!file) {
+      backupPreview.textContent = "尚未選擇備份檔。";
+      backupPreview.classList.add("empty");
+      return;
+    }
+
+    readBackupFile(file);
+  });
+
+  restoreButton.addEventListener("click", () => {
+    if (!pendingRestoreState) {
+      return;
+    }
+
+    store = createInventoryStore(pendingRestoreState);
+    pendingRestoreState = null;
+    restoreButton.disabled = true;
+    backupFileInput.value = "";
+    saveState();
+    setStatus("已完成整包還原，資料已重新載入。");
+    render();
   });
 
   resetButton.addEventListener("click", () => {
@@ -324,10 +449,14 @@ function render() {
   renderTabs();
   renderMetrics();
   renderProductOptions();
+  renderWarehouseOptions();
   renderPartnerOptions();
   renderOverview();
+  renderProductCategoryOptions();
   renderProductFilters();
   renderProducts();
+  renderProductCategories();
+  renderWarehouses();
   renderPartners();
   renderPurchases();
   renderSales();
@@ -457,12 +586,54 @@ function resetProductForm() {
   editingProductId = null;
   productForm.reset();
   productForm.elements.id.value = "";
-  productForm.elements.category.value = "一般";
+  productForm.elements.category.value = store.categories()[0] || "一般";
   productForm.elements.unit.value = "件";
   productForm.elements.safetyStock.value = "5";
   productFormTitle.textContent = "新增商品";
   productSubmitButton.textContent = "新增商品";
   cancelProductEdit.classList.add("is-hidden");
+}
+
+function renderProductCategories() {
+  const categories = store.listProductCategories({ query: categoryQuery.value });
+  document.querySelector("#category-count").textContent = `${categories.length} 筆`;
+  document.querySelector("#category-table").innerHTML = categories.length
+    ? categories.map((category) => `
+      <tr>
+        <td>${escapeHtml(category.code)}</td>
+        <td>${escapeHtml(category.name)}</td>
+        <td>${category.sortOrder}</td>
+        <td>${escapeHtml(category.note || "無備註")}</td>
+        <td>${category.active ? '<span class="badge">啟用</span>' : '<span class="badge warn">停用</span>'}</td>
+        <td>
+          <div class="table-actions">
+            ${category.active ? `<button class="text-button" type="button" data-deactivate-category-id="${category.id}">停用</button>` : ""}
+          </div>
+        </td>
+      </tr>
+    `).join("")
+    : '<tr><td colspan="6" class="empty">沒有符合條件的產品類別。</td></tr>';
+}
+
+function renderWarehouses() {
+  const warehouses = store.listWarehouses({ query: warehouseQuery.value });
+  document.querySelector("#warehouse-count").textContent = `${warehouses.length} 筆`;
+  document.querySelector("#warehouse-table").innerHTML = warehouses.length
+    ? warehouses.map((warehouse) => `
+      <tr>
+        <td>${escapeHtml(warehouse.code)}</td>
+        <td>${escapeHtml(warehouse.name)}</td>
+        <td>${escapeHtml(warehouseTypeLabel(warehouse.type))}</td>
+        <td>${escapeHtml(warehouse.note || "無備註")}</td>
+        <td>${warehouse.active ? '<span class="badge">啟用</span>' : '<span class="badge warn">停用</span>'}</td>
+        <td>
+          <div class="table-actions">
+            ${warehouse.active ? `<button class="text-button" type="button" data-deactivate-warehouse-id="${warehouse.id}">停用</button>` : ""}
+          </div>
+        </td>
+      </tr>
+    `).join("")
+    : '<tr><td colspan="6" class="empty">沒有符合條件的倉庫。</td></tr>';
 }
 
 function renderPartners() {
@@ -538,7 +709,7 @@ function renderPurchases() {
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.supplier || "未填供應商")} / ${escapeHtml(item.note || "無備註")}</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(warehouseName(item.warehouseId))} / ${escapeHtml(item.supplier || "未填供應商")} / ${escapeHtml(item.note || "無備註")}</div>
         </div>
         <div class="record-side">
           <span class="amount income">+${item.quantity} / ${formatMoney(item.quantity * item.unitCost)}</span>
@@ -560,7 +731,7 @@ function renderSales() {
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.customer || "未填客戶")} / ${escapeHtml(item.note || "無備註")}</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(warehouseName(item.warehouseId))} / ${escapeHtml(item.customer || "未填客戶")} / ${escapeHtml(item.note || "無備註")}</div>
         </div>
         <div class="record-side">
           <span class="amount expense">-${item.quantity} / ${formatMoney(item.quantity * item.unitPrice)}</span>
@@ -582,7 +753,7 @@ function renderAdjustments() {
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.reason || "調整")} / ${escapeHtml(item.note || "無備註")}</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(warehouseName(item.warehouseId))} / ${escapeHtml(item.reason || "調整")} / ${escapeHtml(item.note || "無備註")}</div>
         </div>
         <div class="record-side">
           <span class="amount ${item.quantity >= 0 ? "income" : "expense"}">${item.quantity >= 0 ? "+" : ""}${item.quantity}</span>
@@ -596,6 +767,8 @@ function renderReports() {
   const month = reportMonth.value;
   const summary = store.reportSummary({ month });
   const lowStock = store.inventoryReport({ lowStockOnly: true });
+  const warehouseSummary = store.warehouseStockSummary();
+  const distribution = store.productWarehouseSummary().slice(0, 8);
   const sales = store.listSales({ month }).slice(0, 6);
   const purchases = store.listPurchases({ month }).slice(0, 6);
   const movements = store.stockMovements({
@@ -613,12 +786,33 @@ function renderReports() {
   document.querySelector("#report-sales-label").textContent = month || "全部期間";
   document.querySelector("#report-purchases-label").textContent = month || "全部期間";
 
+  document.querySelector("#warehouse-summary-cards").innerHTML = warehouseSummary.length
+    ? warehouseSummary.map((item) => `
+      <article class="ranking-card">
+        <strong>${escapeHtml(item.warehouse ? item.warehouse.name : "未指定倉庫")}</strong>
+        <span class="compact-meta">${escapeHtml(item.warehouse ? item.warehouse.code : "-")} / 商品列 ${item.productCount}</span>
+        <span class="compact-meta">庫存 ${item.onHand} / 低庫存 ${item.lowStockCount}</span>
+        <span class="compact-meta">庫存值 ${formatMoney(item.stockValue)}</span>
+      </article>
+    `).join("")
+    : '<div class="empty">目前沒有倉庫庫存資料。</div>';
+
+  document.querySelector("#warehouse-distribution-list").innerHTML = distribution.length
+    ? distribution.map((item) => `
+      <article class="compact-card">
+        <strong>${escapeHtml(item.product.name)}</strong>
+        <span class="compact-meta">總庫存 ${item.totalOnHand} ${escapeHtml(item.product.unit)} / 庫存值 ${formatMoney(item.stockValue)}</span>
+        <span class="compact-meta">${item.warehouses.map((warehouseRow) => `${escapeHtml(warehouseRow.warehouse ? warehouseRow.warehouse.code : "-")} ${warehouseRow.onHand}${warehouseRow.lowStock ? " 低" : ""}`).join(" / ")}</span>
+      </article>
+    `).join("")
+    : '<div class="empty">目前沒有跨倉分布資料。</div>';
+
   document.querySelector("#report-sales-list").innerHTML = sales.length
     ? sales.map((item) => `
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.customer || "未填客戶")} / ${item.quantity} 件</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(warehouseName(item.warehouseId))} / ${escapeHtml(item.customer || "未填客戶")} / ${item.quantity} 件</div>
         </div>
         <span class="amount expense">${formatMoney(item.quantity * item.unitPrice)}</span>
       </article>
@@ -630,7 +824,7 @@ function renderReports() {
       <article class="record-card">
         <div>
           <strong>${escapeHtml(productName(item.productId))}</strong>
-          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.supplier || "未填供應商")} / ${item.quantity} 件</div>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(warehouseName(item.warehouseId))} / ${escapeHtml(item.supplier || "未填供應商")} / ${item.quantity} 件</div>
         </div>
         <span class="amount income">${formatMoney(item.quantity * item.unitCost)}</span>
       </article>
@@ -658,7 +852,7 @@ function renderReports() {
         <td>
           <div class="row-title">
             <strong>${escapeHtml(item.documentNo || "無單號")}</strong>
-            <span>${escapeHtml(item.sku)} / ${escapeHtml(item.productName)}</span>
+            <span>${escapeHtml(item.sku)} / ${escapeHtml(item.productName)} / ${escapeHtml(item.warehouseName || "未指定倉庫")}</span>
           </div>
         </td>
         <td class="${item.quantity >= 0 ? "movement-positive" : "movement-negative"}">${item.quantity >= 0 ? "+" : ""}${item.quantity}</td>
@@ -672,10 +866,24 @@ function renderReports() {
 
 function renderStockFilters() {
   renderCategorySelect(categoryFilter, "全部分類");
+  renderWarehouseFilter(warehouseFilter, "全部倉庫");
 }
 
 function renderProductFilters() {
   renderCategorySelect(productCategoryFilter, "全部分類");
+}
+
+function renderProductCategoryOptions() {
+  const categories = store.categories();
+  const options = categories.map((category) => `<option value="${escapeAttr(category)}">${escapeHtml(category)}</option>`).join("");
+
+  document.querySelectorAll("[data-category-select]").forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = options || '<option value="一般">一般</option>';
+    if (selected && categories.includes(selected)) {
+      select.value = selected;
+    }
+  });
 }
 
 function renderCategorySelect(select, emptyLabel) {
@@ -688,13 +896,18 @@ function renderCategorySelect(select, emptyLabel) {
   select.value = categories.includes(current) ? current : "";
 }
 
+function renderWarehouseFilter(select, emptyLabel) {
+  const current = select.value;
+  const warehouses = store.listWarehouses({ activeOnly: true });
+  const options = [`<option value="">${escapeHtml(emptyLabel)}</option>`]
+    .concat(warehouses.map((warehouse) => `<option value="${warehouse.id}">${escapeHtml(warehouse.code)} / ${escapeHtml(warehouse.name)}</option>`));
+
+  select.innerHTML = options.join("");
+  select.value = warehouses.some((warehouse) => String(warehouse.id) === current) ? current : "";
+}
+
 function renderStock() {
-  const rows = store.inventoryReport({
-    query: stockQuery.value,
-    category: categoryFilter.value,
-    lowStockOnly: lowStockOnly.checked,
-    sort: stockSort.value
-  });
+  const rows = store.inventoryReport(currentStockOptions());
   const body = document.querySelector("#stock-table");
 
   body.innerHTML = rows.length
@@ -704,9 +917,10 @@ function renderStock() {
         <td>
           <div class="row-title">
             <strong>${escapeHtml(item.product.name)}</strong>
-            <span>${escapeHtml(item.product.unit)}</span>
+            <span>${escapeHtml(item.product.unit)} / ${escapeHtml(item.warehouse ? item.warehouse.name : "未指定倉庫")}</span>
           </div>
         </td>
+        <td>${escapeHtml(item.warehouse ? item.warehouse.code : "-")}</td>
         <td>${escapeHtml(item.product.category)}</td>
         <td>${item.onHand}</td>
         <td>${item.adjusted}</td>
@@ -717,20 +931,48 @@ function renderStock() {
         <td>${item.lowStock ? '<span class="badge danger">低庫存</span>' : '<span class="badge">正常</span>'}</td>
       </tr>
     `).join("")
-    : '<tr><td colspan="10" class="empty">沒有符合條件的庫存資料。</td></tr>';
+    : '<tr><td colspan="11" class="empty">沒有符合條件的庫存資料。</td></tr>';
+}
+
+function currentStockOptions() {
+  return {
+    query: stockQuery.value,
+    category: categoryFilter.value,
+    warehouseId: warehouseFilter.value,
+    lowStockOnly: lowStockOnly.checked,
+    sort: stockSort.value
+  };
 }
 
 function renderProductOptions() {
   const products = store.listProducts({ activeOnly: true });
+  const inventoryRows = store.inventoryReport();
   const options = products.map((product) => {
-    const stock = store.inventoryReport().find((item) => item.productId === product.id);
-    return `<option value="${product.id}">${escapeHtml(product.sku)} / ${escapeHtml(product.name)} / 庫存 ${stock ? stock.onHand : 0}</option>`;
+    const stock = inventoryRows
+      .filter((item) => item.productId === product.id)
+      .reduce((total, item) => total + item.onHand, 0);
+    return `<option value="${product.id}">${escapeHtml(product.sku)} / ${escapeHtml(product.name)} / 總庫存 ${stock}</option>`;
   }).join("");
 
   document.querySelectorAll("[data-product-select]").forEach((select) => {
     const selected = select.value;
     const blank = select.required ? "" : '<option value="">不新增第二筆</option>';
     select.innerHTML = options ? blank + options : '<option value="">尚無啟用商品</option>';
+    if (selected && Array.from(select.options).some((option) => option.value === selected)) {
+      select.value = selected;
+    }
+  });
+}
+
+function renderWarehouseOptions() {
+  const warehouses = store.listWarehouses({ activeOnly: true });
+  const options = warehouses
+    .map((warehouse) => `<option value="${warehouse.id}">${escapeHtml(warehouse.code)} / ${escapeHtml(warehouse.name)}</option>`)
+    .join("");
+
+  document.querySelectorAll("[data-warehouse-select]").forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = options || '<option value="">沒有可用倉庫</option>';
     if (selected && Array.from(select.options).some((option) => option.value === selected)) {
       select.value = selected;
     }
@@ -773,6 +1015,11 @@ function productName(productId) {
   return product ? product.name : "未知商品";
 }
 
+function warehouseName(warehouseId) {
+  const warehouse = store.listWarehouses().find((item) => item.id === Number(warehouseId));
+  return warehouse ? `${warehouse.code} ${warehouse.name}` : "未指定倉庫";
+}
+
 function movementBadge(type) {
   if (type === "purchase") {
     return '<span class="badge">進貨</span>';
@@ -785,17 +1032,219 @@ function movementBadge(type) {
   return '<span class="badge warn">銷售</span>';
 }
 
+function warehouseTypeLabel(type) {
+  if (type === "store") {
+    return "門市";
+  }
+
+  if (type === "display") {
+    return "展示";
+  }
+
+  if (type === "return") {
+    return "退貨區";
+  }
+
+  return "倉庫";
+}
+
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
-    return saved && Array.isArray(saved.products) ? saved : seedState;
+    if (!saved) {
+      return {
+        state: seedState,
+        notice: ""
+      };
+    }
+
+    const migrated = migrateState(saved);
+    return {
+      state: migrated.state,
+      notice: migrated.notice
+    };
   } catch (error) {
-    return seedState;
+    return {
+      state: seedState,
+      notice: "本機資料讀取失敗，已改用範例資料。"
+    };
   }
 }
 
 function saveState() {
-  localStorage.setItem(storageKey, JSON.stringify(store.snapshot()));
+  localStorage.setItem(storageKey, JSON.stringify(createStorageEnvelope(store.snapshot())));
+}
+
+function migrateState(saved) {
+  const rawState = saved && saved.schemaVersion ? saved.state : saved;
+
+  if (!rawState || !Array.isArray(rawState.products)) {
+    return {
+      state: seedState,
+      notice: "本機資料格式無法辨識，已改用範例資料。"
+    };
+  }
+
+  const migratedWarehouses = Array.isArray(rawState.warehouses) && rawState.warehouses.length
+    ? rawState.warehouses
+    : defaultWarehouses();
+  const migratedWarehouseId = Number(migratedWarehouses[0] && migratedWarehouses[0].id) || 1;
+  const state = {
+    products: Array.isArray(rawState.products) ? rawState.products : [],
+    partners: Array.isArray(rawState.partners) ? rawState.partners : [],
+    productCategories: Array.isArray(rawState.productCategories)
+      ? rawState.productCategories
+      : categoriesFromProducts(rawState.products),
+    warehouses: migratedWarehouses,
+    purchases: withDefaultWarehouse(rawState.purchases, migratedWarehouseId),
+    sales: withDefaultWarehouse(rawState.sales, migratedWarehouseId),
+    adjustments: withDefaultWarehouse(rawState.adjustments, migratedWarehouseId)
+  };
+
+  if (saved.schemaVersion === dataSchemaVersion) {
+    return {
+      state,
+      notice: ""
+    };
+  }
+
+  return {
+    state,
+    notice: `已將本機資料升級到資料版本 ${dataSchemaVersion}。`
+  };
+}
+
+function defaultWarehouses() {
+  return [
+    { id: 1, code: "MAIN", name: "主倉", type: "warehouse", note: "由舊資料升級建立", active: true }
+  ];
+}
+
+function withDefaultWarehouse(rows, warehouseId) {
+  return (Array.isArray(rows) ? rows : []).map((row) => Object.assign({}, row, {
+    warehouseId: Number(row && row.warehouseId) || warehouseId
+  }));
+}
+
+function categoriesFromProducts(products) {
+  return Array.from(new Set((Array.isArray(products) ? products : [])
+    .map((product) => String(product && product.category || "").trim())
+    .filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b))
+    .map((name, index) => ({
+      id: index + 1,
+      code: name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "") || `CAT-${index + 1}`,
+      name,
+      sortOrder: (index + 1) * 10,
+      note: "由既有商品分類升級",
+      active: true
+    }));
+}
+
+function createStorageEnvelope(state) {
+  return {
+    schemaVersion: dataSchemaVersion,
+    appVersion,
+    assetVersion,
+    savedAt: new Date().toISOString(),
+    state
+  };
+}
+
+function readBackupFile(file) {
+  const reader = new FileReader();
+
+  reader.addEventListener("load", () => {
+    try {
+      const parsed = JSON.parse(String(reader.result || "null"));
+      const result = validateBackupEnvelope(parsed);
+
+      if (!result.valid) {
+        backupPreview.innerHTML = `<strong>備份檔無法還原</strong><span>${escapeHtml(result.message)}</span>`;
+        backupPreview.classList.remove("empty");
+        setStatus("備份檔檢查失敗。", true);
+        return;
+      }
+
+      pendingRestoreState = result.state;
+      restoreButton.disabled = false;
+      backupPreview.innerHTML = renderBackupSummary(result.summary);
+      backupPreview.classList.remove("empty");
+      setStatus("備份檔檢查通過，請確認後還原。");
+    } catch (error) {
+      backupPreview.innerHTML = "<strong>備份檔無法讀取</strong><span>請確認檔案是 JSON 格式。</span>";
+      backupPreview.classList.remove("empty");
+      setStatus("備份檔讀取失敗。", true);
+    }
+  });
+
+  reader.readAsText(file);
+}
+
+function validateBackupEnvelope(backup) {
+  if (!backup || (!backup.state && !Array.isArray(backup.products))) {
+    return { valid: false, message: "這不是 StockFlow 備份檔。" };
+  }
+
+  const migrated = migrateState(backup);
+  const state = migrated.state;
+  const errors = [];
+  const skuSet = new Set();
+  const productIds = new Set();
+  const warehouseIds = new Set((state.warehouses || []).map((warehouse) => Number(warehouse.id)));
+
+  state.products.forEach((product) => {
+    const sku = String(product.sku || "").trim().toUpperCase();
+    if (!sku || skuSet.has(sku)) {
+      errors.push("商品 SKU 空白或重複。");
+    }
+    skuSet.add(sku);
+    productIds.add(Number(product.id));
+  });
+
+  state.purchases.concat(state.sales).concat(state.adjustments).forEach((row) => {
+    if (!productIds.has(Number(row.productId))) {
+      errors.push("交易或調整資料指向不存在的商品。");
+    }
+    if (!warehouseIds.has(Number(row.warehouseId))) {
+      errors.push("交易或調整資料指向不存在的倉庫。");
+    }
+  });
+
+  if (errors.length) {
+    return { valid: false, message: Array.from(new Set(errors)).join(" ") };
+  }
+
+  return {
+    valid: true,
+    state,
+    summary: summarizeBackup(backup, state)
+  };
+}
+
+function summarizeBackup(backup, state) {
+  return {
+    appVersion: backup && backup.appVersion || "舊版資料",
+    schemaVersion: backup && backup.schemaVersion || "舊版",
+    savedAt: backup && backup.savedAt || "未記錄",
+    productCategories: state.productCategories.length,
+    warehouses: state.warehouses.length,
+    products: state.products.length,
+    partners: state.partners.length,
+    purchases: state.purchases.length,
+    sales: state.sales.length,
+    adjustments: state.adjustments.length
+  };
+}
+
+function renderBackupSummary(summary) {
+  return `
+    <strong>備份檔檢查通過</strong>
+    <span>備份時間：${escapeHtml(summary.savedAt)}</span>
+    <span>App 版本：${escapeHtml(summary.appVersion)} / 資料版本：${escapeHtml(summary.schemaVersion)}</span>
+    <span>產品類別 ${summary.productCategories} 筆，倉庫 ${summary.warehouses} 筆，商品 ${summary.products} 筆，往來對象 ${summary.partners} 筆</span>
+    <span>進貨 ${summary.purchases} 筆，銷售 ${summary.sales} 筆，盤點調整 ${summary.adjustments} 筆</span>
+  `;
 }
 
 function setDefaultDates() {
@@ -833,6 +1282,17 @@ function toCsv(rows) {
 
 function downloadCsv(filename, csv) {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadJson(filename, data) {
+  const json = `${JSON.stringify(data, null, 2)}\n`;
+  const blob = new Blob([json], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>StockFlow 進銷存</title>
-    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./styles.css?v=1.14.0">
   </head>
   <body>
     <main class="app-shell">
@@ -41,6 +41,7 @@
       <nav class="tabs" aria-label="Inventory sections">
         <button class="tab is-active" type="button" data-tab="overview">總覽</button>
         <button class="tab" type="button" data-tab="products">商品管理</button>
+        <button class="tab" type="button" data-tab="masterdata">基本資料</button>
         <button class="tab" type="button" data-tab="partners">往來對象</button>
         <button class="tab" type="button" data-tab="purchases">採購進貨</button>
         <button class="tab" type="button" data-tab="sales">銷售出貨</button>
@@ -95,7 +96,7 @@
             <div class="form-grid">
               <label>
                 <span>分類</span>
-                <input name="category" type="text" maxlength="30" value="一般">
+                <select name="category" data-category-select required></select>
               </label>
               <label>
                 <span>單位</span>
@@ -145,6 +146,128 @@
             </div>
           </section>
         </div>
+      </section>
+
+      <section class="view" data-view="masterdata">
+        <div class="two-column">
+          <form class="panel form-panel" id="category-form">
+            <h2>新增產品類別</h2>
+            <label>
+              <span>類別代碼</span>
+              <input name="code" type="text" maxlength="20" required>
+            </label>
+            <label>
+              <span>類別名稱</span>
+              <input name="name" type="text" maxlength="30" required>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>排序</span>
+                <input name="sortOrder" type="number" min="0" step="1" value="10" required>
+              </label>
+              <label>
+                <span>備註</span>
+                <input name="note" type="text" maxlength="80">
+              </label>
+            </div>
+            <button type="submit">新增類別</button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>產品類別主檔</h2>
+              <div class="filters">
+                <input id="category-query" type="search" placeholder="搜尋代碼 / 名稱">
+                <span id="category-count">0 筆</span>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>代碼</th>
+                    <th>名稱</th>
+                    <th>排序</th>
+                    <th>備註</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="category-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div class="two-column single-panel">
+          <form class="panel form-panel" id="warehouse-form">
+            <h2>新增倉庫</h2>
+            <label>
+              <span>倉庫代碼</span>
+              <input name="code" type="text" maxlength="20" required>
+            </label>
+            <label>
+              <span>倉庫名稱</span>
+              <input name="name" type="text" maxlength="40" required>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>類型</span>
+                <select name="type" required>
+                  <option value="warehouse">倉庫</option>
+                  <option value="store">門市</option>
+                  <option value="display">展示</option>
+                  <option value="return">退貨區</option>
+                </select>
+              </label>
+              <label>
+                <span>備註</span>
+                <input name="note" type="text" maxlength="80">
+              </label>
+            </div>
+            <button type="submit">新增倉庫</button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>倉庫主檔</h2>
+              <div class="filters">
+                <input id="warehouse-query" type="search" placeholder="搜尋代碼 / 名稱 / 類型">
+                <span id="warehouse-count">0 筆</span>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>代碼</th>
+                    <th>名稱</th>
+                    <th>類型</th>
+                    <th>備註</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="warehouse-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel single-panel">
+          <div class="panel-head">
+            <h2>資料管理</h2>
+            <div class="filters">
+              <button id="backup-export-button" type="button">匯出完整備份</button>
+              <label class="file-control">
+                <span>選擇備份檔</span>
+                <input id="backup-file-input" type="file" accept="application/json,.json">
+              </label>
+              <button class="ghost-button" id="restore-button" type="button" disabled>確認還原</button>
+            </div>
+          </div>
+          <div id="backup-preview" class="backup-preview empty">尚未選擇備份檔。</div>
+        </section>
       </section>
 
       <section class="view" data-view="partners">
@@ -219,6 +342,10 @@
           <form class="panel form-panel" id="purchase-form">
             <h2>新增採購單</h2>
             <label>
+              <span>入庫倉庫</span>
+              <select name="warehouseId" data-warehouse-select required></select>
+            </label>
+            <label>
               <span>明細 1 商品</span>
               <select name="productId" data-product-select required></select>
             </label>
@@ -280,6 +407,10 @@
           <form class="panel form-panel" id="sale-form">
             <h2>新增銷售單</h2>
             <label>
+              <span>出貨倉庫</span>
+              <select name="warehouseId" data-warehouse-select required></select>
+            </label>
+            <label>
               <span>明細 1 商品</span>
               <select name="productId" data-product-select required></select>
             </label>
@@ -340,6 +471,10 @@
         <div class="two-column">
           <form class="panel form-panel" id="adjustment-form">
             <h2>新增盤點調整</h2>
+            <label>
+              <span>調整倉庫</span>
+              <select name="warehouseId" data-warehouse-select required></select>
+            </label>
             <label>
               <span>盤點商品</span>
               <select name="productId" data-product-select required></select>
@@ -419,6 +554,22 @@
           </article>
         </section>
 
+        <section class="panel single-panel">
+          <div class="panel-head">
+            <h2>倉庫庫存摘要</h2>
+            <span>依倉庫彙總庫存數、低庫存與庫存值</span>
+          </div>
+          <div id="warehouse-summary-cards" class="ranking-list"></div>
+        </section>
+
+        <section class="panel single-panel">
+          <div class="panel-head">
+            <h2>商品跨倉分布</h2>
+            <span>同一商品在各倉庫的庫存分布</span>
+          </div>
+          <div id="warehouse-distribution-list" class="compact-list"></div>
+        </section>
+
         <div class="two-column report-sections">
           <section class="panel">
             <div class="panel-head">
@@ -476,6 +627,7 @@
             <div class="filters">
               <input id="stock-query" type="search" placeholder="搜尋 SKU / 名稱">
               <select id="category-filter"></select>
+              <select id="warehouse-filter"></select>
               <select id="stock-sort">
                 <option value="sku">依 SKU</option>
                 <option value="lowStockFirst">低庫存優先</option>
@@ -495,6 +647,7 @@
                 <tr>
                   <th>SKU</th>
                   <th>商品</th>
+                  <th>倉庫</th>
                   <th>分類</th>
                   <th>庫存</th>
                   <th>調整</th>
@@ -515,7 +668,7 @@
     <datalist id="supplier-options"></datalist>
     <datalist id="customer-options"></datalist>
 
-    <script src="./inventoryStore.js"></script>
-    <script src="./app.js"></script>
+    <script src="./inventoryStore.js?v=1.14.0"></script>
+    <script src="./app.js?v=1.14.0"></script>
   </body>
 </html>

@@ -341,6 +341,26 @@ select:focus {
   height: 16px;
 }
 
+.file-control {
+  display: inline-flex;
+  grid-auto-flow: initial;
+  align-items: center;
+  height: 40px;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 0 10px;
+}
+
+.file-control input {
+  width: min(240px, 100%);
+  height: auto;
+  border: 0;
+  padding: 0;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -497,6 +517,16 @@ td {
   padding: 24px;
   color: var(--muted);
   text-align: center;
+}
+
+.backup-preview {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.backup-preview strong {
+  color: var(--ink);
 }
 
 @media (max-width: 900px) {
