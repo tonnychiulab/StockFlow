@@ -44,6 +44,7 @@
         <button class="tab" type="button" data-tab="partners">往來對象</button>
         <button class="tab" type="button" data-tab="purchases">採購進貨</button>
         <button class="tab" type="button" data-tab="sales">銷售出貨</button>
+        <button class="tab" type="button" data-tab="adjustments">盤點調整</button>
         <button class="tab" type="button" data-tab="reports">報表中心</button>
       </nav>
 
@@ -335,6 +336,54 @@
         </div>
       </section>
 
+      <section class="view" data-view="adjustments">
+        <div class="two-column">
+          <form class="panel form-panel" id="adjustment-form">
+            <h2>新增盤點調整</h2>
+            <label>
+              <span>盤點商品</span>
+              <select name="productId" data-product-select required></select>
+            </label>
+            <label>
+              <span>實際盤點數量</span>
+              <input name="countedQuantity" type="number" min="0" step="1" required>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span>原因</span>
+                <select name="reason" required>
+                  <option value="盤點差異">盤點差異</option>
+                  <option value="耗損">耗損</option>
+                  <option value="贈品">贈品</option>
+                  <option value="資料修正">資料修正</option>
+                </select>
+              </label>
+              <label>
+                <span>日期</span>
+                <input name="date" type="date" required>
+              </label>
+            </div>
+            <label>
+              <span>備註</span>
+              <input name="note" type="text" maxlength="80">
+            </label>
+            <button type="submit">建立盤點調整</button>
+          </form>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>調整紀錄</h2>
+              <div class="filters">
+                <input id="adjustment-query" type="search" placeholder="搜尋商品 / 單號 / 原因">
+                <input id="adjustment-month" type="month">
+                <span id="adjustment-count">0 筆</span>
+              </div>
+            </div>
+            <div id="adjustment-list" class="record-list"></div>
+          </section>
+        </div>
+      </section>
+
       <section class="view" data-view="reports">
         <section class="report-hero panel">
           <div>
@@ -448,6 +497,7 @@
                   <th>商品</th>
                   <th>分類</th>
                   <th>庫存</th>
+                  <th>調整</th>
                   <th>安全庫存</th>
                   <th>庫存總值</th>
                   <th>收入</th>

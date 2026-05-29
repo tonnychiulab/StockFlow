@@ -400,6 +400,11 @@ td {
   color: var(--amber);
 }
 
+.badge.neutral {
+  background: #eef2ff;
+  color: var(--blue);
+}
+
 .badge.danger {
   background: #fff1f0;
   color: var(--red);

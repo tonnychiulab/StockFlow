@@ -103,4 +103,32 @@ assert.equal(saleOrder.total, 1040);
 assert.equal(orderStore.listSales({ query: "SO-202605-001" }).length, 2);
 assert.equal(orderStore.addSaleOrder({ customer: "Retail", date: "2026-05-16", items: [{ productId: 2, quantity: 99, unitPrice: 290 }] }).error, "INSUFFICIENT_STOCK");
 
+const adjustmentStore = createInventoryStore({
+  products: [
+    { id: 1, sku: "A001", name: "Coffee Beans", category: "Food", unit: "bag", cost: 250, price: 420, safetyStock: 5, active: true }
+  ],
+  purchases: [
+    { id: 1, productId: 1, quantity: 10, unitCost: 250, supplier: "Vendor", date: "2026-05-10", note: "Start" }
+  ],
+  sales: [
+    { id: 1, productId: 1, quantity: 4, unitPrice: 450, customer: "Retail", date: "2026-05-11", note: "Sold" }
+  ],
+  adjustments: []
+});
+const stockCount = adjustmentStore.addStockCount({
+  productId: 1,
+  countedQuantity: 8,
+  reason: "Count",
+  date: "2026-05-12",
+  note: "Shelf count"
+});
+assert.equal(stockCount.documentNo, "ADJ-202605-001");
+assert.equal(stockCount.quantity, 2);
+assert.equal(adjustmentStore.inventoryReport().find((item) => item.productId === 1).adjusted, 2);
+assert.equal(adjustmentStore.inventoryReport().find((item) => item.productId === 1).onHand, 8);
+assert.equal(adjustmentStore.listAdjustments({ query: "shelf", month: "2026-05" }).length, 1);
+assert.equal(adjustmentStore.stockMovements({ query: "ADJ-202605-001" })[0].type, "adjustment");
+assert.equal(adjustmentStore.addStockCount({ productId: 1, countedQuantity: 8, reason: "Same", date: "2026-05-13" }).error, "NO_DIFFERENCE");
+assert.equal(adjustmentStore.exportInventoryRows()[0].adjusted, 2);
+
 console.log("inventoryStore tests passed");

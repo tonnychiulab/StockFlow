@@ -12,11 +12,15 @@
     let partners = Array.isArray(initialState && initialState.partners)
       ? initialState.partners.map(copyPartner)
       : [];
+    let adjustments = Array.isArray(initialState && initialState.adjustments)
+      ? initialState.adjustments.map(copyAdjustment)
+      : [];
 
     let nextProductId = nextId(products);
     let nextPurchaseId = nextId(purchases);
     let nextSaleId = nextId(sales);
     let nextPartnerId = nextId(partners);
+    let nextAdjustmentId = nextId(adjustments);
 
     function addProduct(input) {
       const product = normalizeProduct(input, nextProductId);
@@ -273,6 +277,46 @@
       return sales.length !== before;
     }
 
+    function addStockAdjustment(input) {
+      const adjustment = normalizeAdjustment(input, nextAdjustmentId);
+      const product = findProduct(adjustment && adjustment.productId);
+
+      if (!adjustment || !product || !product.active) {
+        return null;
+      }
+
+      const saved = Object.assign({}, adjustment, {
+        documentNo: adjustment.documentNo || nextDocumentNo("ADJ", adjustment.date, adjustments)
+      });
+      nextAdjustmentId += 1;
+      adjustments = [saved].concat(adjustments);
+      return copyAdjustment(saved);
+    }
+
+    function addStockCount(input) {
+      const productId = Number(input && input.productId);
+      const countedQuantity = nonNegativeNumber(input && input.countedQuantity);
+      const product = findProduct(productId);
+
+      if (!product || !product.active || countedQuantity === null) {
+        return null;
+      }
+
+      const diff = countedQuantity - stockForProduct(productId).onHand;
+      if (diff === 0) {
+        return { error: "NO_DIFFERENCE" };
+      }
+
+      return addStockAdjustment({
+        productId,
+        quantity: diff,
+        reason: normalizeText(input && input.reason) || "盤點",
+        date: input && input.date,
+        note: input && input.note,
+        documentNo: input && input.documentNo
+      });
+    }
+
     function listProducts(options) {
       const filter = Object.assign({ query: "", category: "", activeOnly: false }, options);
       const query = normalizeText(filter.query).toLowerCase();
@@ -361,6 +405,31 @@
         .slice()
         .sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name))
         .map(copyPartner);
+    }
+
+    function listAdjustments(options) {
+      const filter = Object.assign({ query: "", month: "" }, options);
+      const query = normalizeText(filter.query).toLowerCase();
+
+      return adjustments
+        .filter((adjustment) => !filter.month || adjustment.date.slice(0, 7) === filter.month)
+        .filter((adjustment) => {
+          if (!query) {
+            return true;
+          }
+
+          const product = findProduct(adjustment.productId);
+          return [
+            product && product.sku,
+            product && product.name,
+            adjustment.documentNo,
+            adjustment.reason,
+            adjustment.note
+          ].some((value) => normalizeText(value).toLowerCase().includes(query));
+        })
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+        .map(copyAdjustment);
     }
 
     function inventoryReport(options) {
@@ -469,9 +538,28 @@
           documentNo: sale.documentNo
         };
       });
+      const adjustmentMovements = adjustments.map((adjustment) => {
+        const product = findProduct(adjustment.productId);
+        return {
+          id: `adjustment-${adjustment.id}`,
+          sourceId: adjustment.id,
+          type: "adjustment",
+          label: "調整",
+          date: adjustment.date,
+          productId: adjustment.productId,
+          sku: product ? product.sku : "",
+          productName: product ? product.name : "未知商品",
+          quantity: adjustment.quantity,
+          amount: Math.abs(adjustment.quantity) * (product ? product.cost : 0),
+          party: adjustment.reason,
+          note: adjustment.note,
+          documentNo: adjustment.documentNo
+        };
+      });
 
       return purchaseMovements
         .concat(saleMovements)
+        .concat(adjustmentMovements)
         .filter((item) => !filter.month || item.date.slice(0, 7) === filter.month)
         .filter((item) => {
           if (!query) {
@@ -497,6 +585,7 @@
         category: item.product.category,
         unit: item.product.unit,
         onHand: item.onHand,
+        adjusted: item.adjusted,
         cost: item.product.cost,
         price: item.product.price,
         safetyStock: item.product.safetyStock,
@@ -511,6 +600,7 @@
       return {
         products: products.map(copyProduct),
         partners: partners.map(copyPartner),
+        adjustments: adjustments.map(copyAdjustment),
         purchases: purchases.map(copyPurchase),
         sales: sales.map(copySale)
       };
@@ -524,10 +614,13 @@
       const sold = sales
         .filter((sale) => sale.productId === productId)
         .reduce((total, sale) => total + sale.quantity, 0);
+      const adjusted = adjustments
+        .filter((adjustment) => adjustment.productId === productId)
+        .reduce((total, adjustment) => total + adjustment.quantity, 0);
       const revenue = sales
         .filter((sale) => sale.productId === productId)
         .reduce((total, sale) => total + sale.quantity * sale.unitPrice, 0);
-      const onHand = purchased - sold;
+      const onHand = purchased + adjusted - sold;
       const cost = product ? product.cost : 0;
 
       return {
@@ -536,6 +629,7 @@
         onHand,
         purchased,
         sold,
+        adjusted,
         stockValue: onHand * cost,
         revenue,
         grossProfit: revenue - sold * cost,
@@ -560,6 +654,8 @@
       deactivateProduct,
       deactivatePartner,
       addPartner,
+      addStockAdjustment,
+      addStockCount,
       exportInventoryRows,
       grossProfitRanking,
       inventoryReport,
@@ -567,6 +663,7 @@
       listProducts,
       listPurchases,
       listSales,
+      listAdjustments,
       addPurchaseOrder,
       addSaleOrder,
       reportSummary,
@@ -706,6 +803,26 @@
     };
   }
 
+  function normalizeAdjustment(input, id) {
+    const productId = Number(input && input.productId);
+    const quantity = Math.round(Number(input && input.quantity));
+    const date = normalizeDate(input && input.date);
+
+    if (!productId || !Number.isFinite(quantity) || quantity === 0 || !date) {
+      return null;
+    }
+
+    return {
+      id,
+      productId,
+      quantity,
+      reason: normalizeText(input && input.reason) || "調整",
+      date,
+      note: normalizeText(input && input.note),
+      documentNo: normalizeText(input && input.documentNo)
+    };
+  }
+
   function copyProduct(product) {
     return {
       id: Number(product.id),
@@ -743,6 +860,18 @@
       date: normalizeDate(sale.date),
       note: normalizeText(sale.note),
       documentNo: normalizeText(sale.documentNo)
+    };
+  }
+
+  function copyAdjustment(adjustment) {
+    return {
+      id: Number(adjustment.id),
+      productId: Number(adjustment.productId),
+      quantity: Math.round(Number(adjustment.quantity)) || 0,
+      reason: normalizeText(adjustment.reason) || "調整",
+      date: normalizeDate(adjustment.date),
+      note: normalizeText(adjustment.note),
+      documentNo: normalizeText(adjustment.documentNo)
     };
   }
 

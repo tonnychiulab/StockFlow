@@ -1,5 +1,5 @@
 const storageKey = "stockflow-inventory-state";
-const appVersion = "1.8.0";
+const appVersion = "1.9.0";
 const today = new Date().toISOString().slice(0, 10);
 
 const seedState = {
@@ -23,6 +23,9 @@ const seedState = {
     { id: 1, productId: 1, quantity: 13, unitPrice: 450, customer: "門市客", date: today, note: "零售" },
     { id: 2, productId: 2, quantity: 3, unitPrice: 280, customer: "門市客", date: today, note: "零售" },
     { id: 3, productId: 3, quantity: 5, unitPrice: 180, customer: "團購", date: today, note: "小批量" }
+  ],
+  adjustments: [
+    { id: 1, productId: 2, quantity: -1, reason: "盤點差異", date: today, note: "展示品耗損", documentNo: "ADJ-202605-001" }
   ]
 };
 
@@ -44,6 +47,7 @@ const partnerSubmitButton = document.querySelector("#partner-submit-button");
 const cancelPartnerEdit = document.querySelector("#cancel-partner-edit");
 const purchaseForm = document.querySelector("#purchase-form");
 const saleForm = document.querySelector("#sale-form");
+const adjustmentForm = document.querySelector("#adjustment-form");
 const productQuery = document.querySelector("#product-query");
 const productCategoryFilter = document.querySelector("#product-category-filter");
 const partnerQuery = document.querySelector("#partner-query");
@@ -52,6 +56,8 @@ const purchaseQuery = document.querySelector("#purchase-query");
 const purchaseMonth = document.querySelector("#purchase-month");
 const saleQuery = document.querySelector("#sale-query");
 const saleMonth = document.querySelector("#sale-month");
+const adjustmentQuery = document.querySelector("#adjustment-query");
+const adjustmentMonth = document.querySelector("#adjustment-month");
 const reportMonth = document.querySelector("#report-month");
 const movementQuery = document.querySelector("#movement-query");
 const stockQuery = document.querySelector("#stock-query");
@@ -183,6 +189,28 @@ function bindEvents() {
     render();
   });
 
+  adjustmentForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(adjustmentForm));
+    const adjustment = store.addStockCount(data);
+
+    if (!adjustment) {
+      setStatus("盤點調整建立失敗，請確認商品仍啟用且數量有效。", true);
+      return;
+    }
+
+    if (adjustment.error === "NO_DIFFERENCE") {
+      setStatus("盤點數量與系統庫存相同，無需建立調整單。");
+      return;
+    }
+
+    adjustmentForm.reset();
+    setDefaultDates();
+    saveState();
+    setStatus(`已建立盤點調整 ${adjustment.documentNo}，異動 ${adjustment.quantity > 0 ? "+" : ""}${adjustment.quantity}。`);
+    render();
+  });
+
   document.querySelector("#product-table").addEventListener("click", (event) => {
     const editButton = event.target.closest("[data-edit-product-id]");
     if (editButton) {
@@ -270,6 +298,8 @@ function bindEvents() {
   purchaseMonth.addEventListener("change", renderPurchases);
   saleQuery.addEventListener("input", renderSales);
   saleMonth.addEventListener("change", renderSales);
+  adjustmentQuery.addEventListener("input", renderAdjustments);
+  adjustmentMonth.addEventListener("change", renderAdjustments);
   reportMonth.addEventListener("change", renderReports);
   movementQuery.addEventListener("input", renderReports);
   stockQuery.addEventListener("input", renderStock);
@@ -301,6 +331,7 @@ function render() {
   renderPartners();
   renderPurchases();
   renderSales();
+  renderAdjustments();
   renderReports();
   renderStockFilters();
   renderStock();
@@ -540,6 +571,27 @@ function renderSales() {
     : '<div class="empty">尚無銷售紀錄。</div>';
 }
 
+function renderAdjustments() {
+  const adjustments = store.listAdjustments({
+    query: adjustmentQuery.value,
+    month: adjustmentMonth.value
+  });
+  document.querySelector("#adjustment-count").textContent = `${adjustments.length} 筆`;
+  document.querySelector("#adjustment-list").innerHTML = adjustments.length
+    ? adjustments.map((item) => `
+      <article class="record-card">
+        <div>
+          <strong>${escapeHtml(productName(item.productId))}</strong>
+          <div class="record-meta">${escapeHtml(item.documentNo || "無單號")} / ${item.date} / ${escapeHtml(item.reason || "調整")} / ${escapeHtml(item.note || "無備註")}</div>
+        </div>
+        <div class="record-side">
+          <span class="amount ${item.quantity >= 0 ? "income" : "expense"}">${item.quantity >= 0 ? "+" : ""}${item.quantity}</span>
+        </div>
+      </article>
+    `).join("")
+    : '<div class="empty">尚無盤點調整紀錄。</div>';
+}
+
 function renderReports() {
   const month = reportMonth.value;
   const summary = store.reportSummary({ month });
@@ -602,7 +654,7 @@ function renderReports() {
     ? movements.map((item) => `
       <tr>
         <td>${item.date}</td>
-        <td>${item.type === "purchase" ? '<span class="badge">進貨</span>' : '<span class="badge warn">銷售</span>'}</td>
+        <td>${movementBadge(item.type)}</td>
         <td>
           <div class="row-title">
             <strong>${escapeHtml(item.documentNo || "無單號")}</strong>
@@ -657,6 +709,7 @@ function renderStock() {
         </td>
         <td>${escapeHtml(item.product.category)}</td>
         <td>${item.onHand}</td>
+        <td>${item.adjusted}</td>
         <td>${item.product.safetyStock}</td>
         <td>${formatMoney(item.stockValue)}</td>
         <td>${formatMoney(item.revenue)}</td>
@@ -664,7 +717,7 @@ function renderStock() {
         <td>${item.lowStock ? '<span class="badge danger">低庫存</span>' : '<span class="badge">正常</span>'}</td>
       </tr>
     `).join("")
-    : '<tr><td colspan="9" class="empty">沒有符合條件的庫存資料。</td></tr>';
+    : '<tr><td colspan="10" class="empty">沒有符合條件的庫存資料。</td></tr>';
 }
 
 function renderProductOptions() {
@@ -720,6 +773,18 @@ function productName(productId) {
   return product ? product.name : "未知商品";
 }
 
+function movementBadge(type) {
+  if (type === "purchase") {
+    return '<span class="badge">進貨</span>';
+  }
+
+  if (type === "adjustment") {
+    return '<span class="badge neutral">調整</span>';
+  }
+
+  return '<span class="badge warn">銷售</span>';
+}
+
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
@@ -760,7 +825,7 @@ function formatPercent(value) {
 }
 
 function toCsv(rows) {
-  const header = ["sku", "name", "category", "unit", "onHand", "cost", "price", "safetyStock", "stockValue", "revenue", "grossProfit", "lowStock"];
+  const header = ["sku", "name", "category", "unit", "onHand", "adjusted", "cost", "price", "safetyStock", "stockValue", "revenue", "grossProfit", "lowStock"];
   return [header.join(",")]
     .concat(rows.map((row) => header.map((key) => csvCell(row[key])).join(",")))
     .join("\n");
