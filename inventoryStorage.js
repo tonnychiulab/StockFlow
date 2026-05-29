@@ -1,6 +1,6 @@
 (function (global) {
   const storageKey = "stockflow-inventory-state";
-  const dataSchemaVersion = 5;
+  const dataSchemaVersion = 6;
 
   function createInventoryStorage(config) {
     const seedState = config.seedState;
@@ -57,7 +57,8 @@
         warehouses: migratedWarehouses,
         purchases: withDefaultWarehouse(rawState.purchases, migratedWarehouseId),
         sales: withDefaultWarehouse(rawState.sales, migratedWarehouseId),
-        adjustments: withDefaultWarehouse(rawState.adjustments, migratedWarehouseId)
+        adjustments: withDefaultWarehouse(rawState.adjustments, migratedWarehouseId),
+        transfers: withDefaultTransferWarehouses(rawState.transfers, migratedWarehouseId)
       };
 
       if (saved.schemaVersion === dataSchemaVersion) {
@@ -112,6 +113,17 @@
           errors.push("交易或調整資料指向不存在的倉庫。");
         }
       });
+      state.transfers.forEach((transfer) => {
+        if (!productIds.has(Number(transfer.productId))) {
+          errors.push("調撥資料指向不存在的商品。");
+        }
+        if (!warehouseIds.has(Number(transfer.fromWarehouseId)) || !warehouseIds.has(Number(transfer.toWarehouseId))) {
+          errors.push("調撥資料指向不存在的倉庫。");
+        }
+        if (Number(transfer.fromWarehouseId) === Number(transfer.toWarehouseId)) {
+          errors.push("調撥來源與目的倉庫不可相同。");
+        }
+      });
 
       if (errors.length) {
         return { valid: false, message: Array.from(new Set(errors)).join(" ") };
@@ -145,6 +157,13 @@
     }));
   }
 
+  function withDefaultTransferWarehouses(rows, warehouseId) {
+    return (Array.isArray(rows) ? rows : []).map((row) => Object.assign({}, row, {
+      fromWarehouseId: Number(row && row.fromWarehouseId) || warehouseId,
+      toWarehouseId: Number(row && row.toWarehouseId) || warehouseId
+    }));
+  }
+
   function categoriesFromProducts(products) {
     return Array.from(new Set((Array.isArray(products) ? products : [])
       .map((product) => String(product && product.category || "").trim())
@@ -171,7 +190,8 @@
       partners: state.partners.length,
       purchases: state.purchases.length,
       sales: state.sales.length,
-      adjustments: state.adjustments.length
+      adjustments: state.adjustments.length,
+      transfers: state.transfers.length
     };
   }
 

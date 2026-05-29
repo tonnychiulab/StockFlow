@@ -12,7 +12,9 @@
     copyPartner,
     samePartner,
     normalizePurchase,
-    normalizeSale
+    normalizeSale,
+    normalizeTransfer,
+    copyTransfer
   } = models;
 
   function createInventoryStore(initialState) {
@@ -40,6 +42,9 @@
     let adjustments = Array.isArray(initialState && initialState.adjustments)
       ? initialState.adjustments.map(copyAdjustment)
       : [];
+    let transfers = Array.isArray(initialState && initialState.transfers)
+      ? initialState.transfers.map(copyTransfer)
+      : [];
     const fallbackWarehouseId = defaultWarehouseId();
     purchases = purchases.map((purchase) => ensureWarehouseOnRow(purchase, fallbackWarehouseId));
     sales = sales.map((sale) => ensureWarehouseOnRow(sale, fallbackWarehouseId));
@@ -52,6 +57,7 @@
     let nextCategoryId = nextId(productCategories);
     let nextWarehouseId = nextId(warehouses);
     let nextAdjustmentId = nextId(adjustments);
+    let nextTransferId = nextId(transfers);
 
     function addProduct(input) {
       const product = normalizeProduct(input, nextProductId);
@@ -414,6 +420,58 @@
       });
     }
 
+    function addTransferOrder(input) {
+      const date = normalizeDate(input && input.date);
+      const items = normalizeOrderItems(input && input.items, "quantity");
+      const fromWarehouse = resolveActiveWarehouse(input && input.fromWarehouseId);
+      const toWarehouse = resolveActiveWarehouse(input && input.toWarehouseId);
+
+      if (!date || !items.length || !fromWarehouse || !toWarehouse || fromWarehouse.id === toWarehouse.id) {
+        return null;
+      }
+
+      if (items.some((item) => {
+        const product = findProduct(item.productId);
+        return !product || !product.active;
+      })) {
+        return null;
+      }
+
+      const requestedByProduct = new Map();
+      items.forEach((item) => {
+        requestedByProduct.set(item.productId, (requestedByProduct.get(item.productId) || 0) + item.quantity);
+      });
+
+      for (const [productId, quantity] of requestedByProduct.entries()) {
+        if (stockForProduct(productId, fromWarehouse.id).onHand < quantity) {
+          return { error: "INSUFFICIENT_STOCK" };
+        }
+      }
+
+      const documentNo = normalizeText(input && input.documentNo) || nextDocumentNo("TRF", date, transfers);
+      const created = items.map((item) => {
+        const transfer = normalizeTransfer({
+          productId: item.productId,
+          fromWarehouseId: fromWarehouse.id,
+          toWarehouseId: toWarehouse.id,
+          quantity: item.quantity,
+          date,
+          note: input && input.note,
+          documentNo
+        }, nextTransferId);
+        nextTransferId += 1;
+        return transfer;
+      }).filter(Boolean);
+
+      transfers = created.concat(transfers);
+
+      return {
+        documentNo,
+        lines: created.map(copyTransfer),
+        totalQuantity: created.reduce((sum, item) => sum + item.quantity, 0)
+      };
+    }
+
     function listProducts(options) {
       const filter = Object.assign({ query: "", category: "", activeOnly: false }, options);
       const query = normalizeText(filter.query).toLowerCase();
@@ -604,6 +662,36 @@
       return reports.stockMovements(reportState(), options);
     }
 
+    function listTransfers(options) {
+      const filter = Object.assign({ query: "", month: "" }, options);
+      const query = normalizeText(filter.query).toLowerCase();
+
+      return transfers
+        .filter((transfer) => !filter.month || transfer.date.slice(0, 7) === filter.month)
+        .filter((transfer) => {
+          if (!query) {
+            return true;
+          }
+
+          const product = findProduct(transfer.productId);
+          const fromWarehouse = findWarehouse(transfer.fromWarehouseId);
+          const toWarehouse = findWarehouse(transfer.toWarehouseId);
+          return [
+            product && product.sku,
+            product && product.name,
+            fromWarehouse && fromWarehouse.code,
+            fromWarehouse && fromWarehouse.name,
+            toWarehouse && toWarehouse.code,
+            toWarehouse && toWarehouse.name,
+            transfer.documentNo,
+            transfer.note
+          ].some((value) => normalizeText(value).toLowerCase().includes(query));
+        })
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+        .map(copyTransfer);
+    }
+
     function categories() {
       const categoryNames = productCategories
         .filter((category) => category.active)
@@ -625,6 +713,7 @@
         purchases,
         sales,
         adjustments,
+        transfers,
         warehouses
       };
     }
@@ -636,6 +725,7 @@
         productCategories: productCategories.map(copyProductCategory),
         warehouses: warehouses.map(copyWarehouse),
         adjustments: adjustments.map(copyAdjustment),
+        transfers: transfers.map(copyTransfer),
         purchases: purchases.map(copyPurchase),
         sales: sales.map(copySale)
       };
@@ -684,6 +774,7 @@
       addWarehouse,
       addStockAdjustment,
       addStockCount,
+      addTransferOrder,
       exportInventoryRows,
       grossProfitRanking,
       warehouseStockSummary,
@@ -696,6 +787,7 @@
       listPurchases,
       listSales,
       listAdjustments,
+      listTransfers,
       addPurchaseOrder,
       addSaleOrder,
       reportSummary,

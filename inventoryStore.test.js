@@ -154,12 +154,28 @@ assert.equal(warehouseStore.inventoryReport({ warehouseId: 1 }).find((item) => i
 assert.equal(warehouseStore.addPurchase({ productId: 1, warehouseId: 999, quantity: 1, unitCost: 250, supplier: "Vendor", date: "2026-05-10" }), null);
 assert.equal(warehouseStore.addSale({ productId: 1, warehouseId: 999, quantity: 1, unitPrice: 450, customer: "Retail", date: "2026-05-11" }), null);
 assert.equal(warehouseStore.addStockCount({ productId: 1, warehouseId: 999, countedQuantity: 1, reason: "Count", date: "2026-05-13" }), null);
+const transferOrder = warehouseStore.addTransferOrder({
+  fromWarehouseId: 1,
+  toWarehouseId: 2,
+  date: "2026-05-14",
+  note: "Move to store",
+  items: [{ productId: 1, quantity: 3 }]
+});
+assert.equal(transferOrder.documentNo, "TRF-202605-001");
+assert.equal(transferOrder.lines.length, 1);
+assert.equal(transferOrder.totalQuantity, 3);
+assert.equal(warehouseStore.inventoryReport({ warehouseId: 1 }).find((item) => item.productId === 1).onHand, 5);
+assert.equal(warehouseStore.inventoryReport({ warehouseId: 2 }).find((item) => item.productId === 1).onHand, 5);
+assert.equal(warehouseStore.addTransferOrder({ fromWarehouseId: 1, toWarehouseId: 2, date: "2026-05-14", items: [{ productId: 1, quantity: 99 }] }).error, "INSUFFICIENT_STOCK");
+assert.equal(warehouseStore.addTransferOrder({ fromWarehouseId: 1, toWarehouseId: 1, date: "2026-05-14", items: [{ productId: 1, quantity: 1 }] }), null);
+assert.equal(warehouseStore.listTransfers({ query: "TRF-202605-001" }).length, 1);
+assert.equal(warehouseStore.stockMovements({ query: "TRF-202605-001" }).length, 2);
 assert.equal(warehouseStore.listSales({ query: "store" }).length, 1);
 assert.equal(warehouseStore.stockMovements({ query: "STORE" }).some((item) => item.warehouseName === "Storefront"), true);
 assert.equal(warehouseStore.exportInventoryRows().some((row) => row.warehouse.includes("STORE")), true);
 const warehouseSummary = warehouseStore.warehouseStockSummary();
-assert.equal(warehouseSummary.find((item) => item.warehouse.code === "MAIN").onHand, 8);
-assert.equal(warehouseSummary.find((item) => item.warehouse.code === "STORE").onHand, 2);
+assert.equal(warehouseSummary.find((item) => item.warehouse.code === "MAIN").onHand, 5);
+assert.equal(warehouseSummary.find((item) => item.warehouse.code === "STORE").onHand, 5);
 assert.equal(warehouseStore.warehouseStockSummary({ warehouseId: 2 }).length, 1);
 const productDistribution = warehouseStore.productWarehouseSummary().find((item) => item.productId === 1);
 assert.equal(productDistribution.totalOnHand, 10);

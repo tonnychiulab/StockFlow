@@ -197,10 +197,46 @@
         documentNo: adjustment.documentNo
       };
     });
+    const transferMovements = (state.transfers || []).flatMap((transfer) => {
+      const product = findProduct(state, transfer.productId);
+      const fromWarehouse = findWarehouse(state, transfer.fromWarehouseId);
+      const toWarehouse = findWarehouse(state, transfer.toWarehouseId);
+      const base = {
+        sourceId: transfer.id,
+        type: "transfer",
+        label: "調撥",
+        date: transfer.date,
+        productId: transfer.productId,
+        sku: product ? product.sku : "",
+        productName: product ? product.name : "未知商品",
+        amount: Math.abs(transfer.quantity) * (product ? product.cost : 0),
+        party: `${fromWarehouse ? fromWarehouse.name : "未知倉庫"} -> ${toWarehouse ? toWarehouse.name : "未知倉庫"}`,
+        note: transfer.note,
+        documentNo: transfer.documentNo
+      };
+
+      return [
+        Object.assign({}, base, {
+          id: `transfer-out-${transfer.id}`,
+          warehouseId: transfer.fromWarehouseId,
+          warehouseCode: fromWarehouse ? fromWarehouse.code : "",
+          warehouseName: fromWarehouse ? fromWarehouse.name : "",
+          quantity: -transfer.quantity
+        }),
+        Object.assign({}, base, {
+          id: `transfer-in-${transfer.id}`,
+          warehouseId: transfer.toWarehouseId,
+          warehouseCode: toWarehouse ? toWarehouse.code : "",
+          warehouseName: toWarehouse ? toWarehouse.name : "",
+          quantity: transfer.quantity
+        })
+      ];
+    });
 
     return purchaseMovements
       .concat(saleMovements)
       .concat(adjustmentMovements)
+      .concat(transferMovements)
       .filter((item) => !filter.month || item.date.slice(0, 7) === filter.month)
       .filter((item) => {
         if (!query) {
@@ -244,10 +280,16 @@
     const adjusted = state.adjustments
       .filter((adjustment) => adjustment.productId === Number(productId) && (!warehouseId || adjustment.warehouseId === Number(warehouseId)))
       .reduce((total, adjustment) => total + adjustment.quantity, 0);
+    const transferredIn = (state.transfers || [])
+      .filter((transfer) => transfer.productId === Number(productId) && (!warehouseId || transfer.toWarehouseId === Number(warehouseId)))
+      .reduce((total, transfer) => total + transfer.quantity, 0);
+    const transferredOut = (state.transfers || [])
+      .filter((transfer) => transfer.productId === Number(productId) && (!warehouseId || transfer.fromWarehouseId === Number(warehouseId)))
+      .reduce((total, transfer) => total + transfer.quantity, 0);
     const revenue = state.sales
       .filter((sale) => sale.productId === Number(productId) && (!warehouseId || sale.warehouseId === Number(warehouseId)))
       .reduce((total, sale) => total + sale.quantity * sale.unitPrice, 0);
-    const onHand = purchased + adjusted - sold;
+    const onHand = purchased + adjusted + transferredIn - transferredOut - sold;
     const cost = product ? product.cost : 0;
 
     return {
@@ -259,6 +301,8 @@
       purchased,
       sold,
       adjusted,
+      transferredIn,
+      transferredOut,
       stockValue: onHand * cost,
       revenue,
       grossProfit: revenue - sold * cost,

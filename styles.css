@@ -1,3 +1,4 @@
+/* Base */
 :root {
   color-scheme: light;
   --bg: #f5f6f3;
@@ -30,6 +31,7 @@ select {
   font: inherit;
 }
 
+/* Layout */
 .app-shell {
   width: min(1240px, calc(100% - 32px));
   margin: 0 auto;
@@ -90,6 +92,7 @@ h2 {
   font-size: 19px;
 }
 
+/* Controls */
 .header-actions,
 .filters {
   display: flex;
@@ -125,6 +128,7 @@ button:hover {
   background: #eef3ef;
 }
 
+/* Metrics and navigation */
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -193,6 +197,7 @@ button:hover {
   display: block;
 }
 
+/* Page layouts */
 .two-column {
   display: grid;
   grid-template-columns: 360px 1fr;
@@ -203,6 +208,7 @@ button:hover {
   margin-top: 14px;
 }
 
+/* Reports */
 .report-hero {
   display: flex;
   justify-content: space-between;
@@ -249,6 +255,7 @@ button:hover {
   margin-bottom: 14px;
 }
 
+/* Panels and forms */
 .panel {
   min-width: 0;
   padding: 20px;
@@ -361,6 +368,7 @@ select:focus {
   padding: 0;
 }
 
+/* Tables */
 .table-wrap {
   overflow-x: auto;
 }
@@ -403,6 +411,7 @@ td {
   font-size: 12px;
 }
 
+/* Badges and actions */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -438,6 +447,7 @@ td {
   padding: 0 10px;
 }
 
+/* Lists and cards */
 .record-list,
 .compact-list,
 .ranking-list {
@@ -490,6 +500,7 @@ td {
   font-size: 13px;
 }
 
+/* Amounts and movement states */
 .amount {
   font-size: 16px;
   font-weight: 900;
@@ -513,6 +524,7 @@ td {
   font-weight: 900;
 }
 
+/* Empty and backup states */
 .empty {
   padding: 24px;
   color: var(--muted);
@@ -529,6 +541,7 @@ td {
   color: var(--ink);
 }
 
+/* Responsive */
 @media (max-width: 900px) {
   .app-shell {
     width: min(100% - 20px, 1240px);

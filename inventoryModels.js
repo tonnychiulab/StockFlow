@@ -205,6 +205,29 @@
     };
   }
 
+  function normalizeTransfer(input, id) {
+    const productId = Number(input && input.productId);
+    const fromWarehouseId = Number(input && input.fromWarehouseId);
+    const toWarehouseId = Number(input && input.toWarehouseId);
+    const quantity = positiveNumber(input && input.quantity);
+    const date = normalizeDate(input && input.date);
+
+    if (!productId || !fromWarehouseId || !toWarehouseId || fromWarehouseId === toWarehouseId || quantity === null || !date) {
+      return null;
+    }
+
+    return {
+      id,
+      productId,
+      fromWarehouseId,
+      toWarehouseId,
+      quantity,
+      date,
+      note: normalizeText(input && input.note),
+      documentNo: normalizeText(input && input.documentNo)
+    };
+  }
+
   function copyProduct(product) {
     return {
       id: Number(product.id),
@@ -260,6 +283,19 @@
     };
   }
 
+  function copyTransfer(transfer) {
+    return {
+      id: Number(transfer.id),
+      productId: Number(transfer.productId),
+      fromWarehouseId: Number(transfer.fromWarehouseId),
+      toWarehouseId: Number(transfer.toWarehouseId),
+      quantity: positiveNumber(transfer.quantity) || 0,
+      date: normalizeDate(transfer.date),
+      note: normalizeText(transfer.note),
+      documentNo: normalizeText(transfer.documentNo)
+    };
+  }
+
   function defaultWarehouse() {
     return {
       id: 1,
@@ -295,10 +331,12 @@
     normalizePurchase,
     normalizeSale,
     normalizeAdjustment,
+    normalizeTransfer,
     copyProduct,
     copyPurchase,
     copySale,
     copyAdjustment,
+    copyTransfer,
     defaultWarehouse,
     ensureWarehouseOnRow,
     sameSku
